@@ -1,0 +1,50 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Google Family Link – Setup",
+        "description": "Configure the Google Family Link integration. After clicking Submit, the integration will attempt to open an automated browser login (Chromium). If that is not available on your platform, you will be guided to enter your session cookies manually in the next step.",
+        "data": {
+          "name": "Integration name",
+          "update_interval": "Update interval (seconds)",
+          "timeout": "Request timeout (seconds)"
+        },
+        "data_description": {
+          "update_interval": "How often to poll Google Family Link for device state changes (30–3600 s).",
+          "timeout": "Maximum time to wait for a response from Google (10–120 s)."
+        }
+      },
+      "cookies": {
+        "title": "Paste Google Session Cookies",
+        "description": "Automated browser login is not available on this platform. Follow these steps to copy your session cookies manually:\n\n1. Install a cookie-manager browser extension such as **[Cookie-Editor](https://cookie-editor.com/)** or **[EditThisCookie](https://www.editthiscookie.com/)** in Chrome or Edge.\n2. Open **[families.google.com]({familylink_url})** and log in with the Google account that manages your Family Link family.\n3. Once you see the Family Link dashboard, click the cookie-manager extension icon.\n4. Choose **Export as JSON** (Cookie-Editor) or **Export** / clipboard icon (EditThisCookie).\n5. Copy the exported JSON text and paste it into the field below.",
+        "data": {
+          "cookies_json": "Session cookies (JSON)"
+        },
+        "data_description": {
+          "cookies_json": "Paste the full JSON cookie array exported from your browser's DevTools. The array must contain the Google authentication cookies (e.g. SID, HSID, SSID)."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate – Session Expired",
+        "description": "Your Google Family Link session has expired. Please copy fresh session cookies from **[families.google.com]({familylink_url})** and paste them below.\n\n1. Install a cookie-manager browser extension such as **[Cookie-Editor](https://cookie-editor.com/)** or **[EditThisCookie](https://www.editthiscookie.com/)** in Chrome or Edge.\n2. Open **[families.google.com]({familylink_url})** and log in to your Google account.\n3. Click the cookie-manager extension icon and choose **Export as JSON**.\n4. Paste the copied JSON below.",
+        "data": {
+          "cookies_json": "Session cookies (JSON)"
+        },
+        "data_description": {
+          "cookies_json": "Paste the full JSON cookie array exported from your browser's DevTools."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to Google Family Link. Check your internet connection and try again.",
+      "invalid_auth": "The cookies you provided are not valid or have already expired. Please re-export fresh cookies from your browser and try again.",
+      "unknown": "An unexpected error occurred. Check the Home Assistant logs for details."
+    },
+    "abort": {
+      "already_configured": "Google Family Link is already configured.",
+      "invalid_config": "The configuration is invalid. Please check your settings.",
+      "entry_not_found": "The configuration entry was not found.",
+      "reauth_successful": "Re-authentication was successful. Your session has been renewed."
+    }
+  }
+}
