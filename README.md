@@ -109,7 +109,6 @@ The integration follows a modular architecture with clear separation of concerns
 
 ```python
 # Core dependencies
-playwright>=1.40.0           # Browser automation
 aiohttp>=3.8.0              # Async HTTP client
 cryptography>=3.4.8        # Cookie encryption
 homeassistant>=2023.10.0    # Home Assistant core
@@ -134,7 +133,7 @@ custom_components/familylink/
 ├── exceptions.py           # Custom exception classes
 ├── auth/
 │   ├── __init__.py
-│   ├── browser.py          # Playwright browser management
+│   ├── browser.py          # Cookie-based authentication
 │   ├── session.py          # Session and cookie handling
 │   └── encryption.py       # Cookie encryption utilities
 ├── client/
@@ -171,10 +170,21 @@ custom_components/familylink/
 
 ### Configuration
 
-1. **Add Integration**: Search for "Google Family Link" in integrations
-2. **Browser Authentication**: Complete Google login in popup browser
-3. **Device Selection**: Choose devices to control
-4. **Finalise Setup**: Confirm configuration and test devices
+The integration automatically selects the best authentication method for your
+platform:
+
+| Platform | Authentication method |
+|---|---|
+| x86-64 / manylinux ARM | **Automatic browser login** – a Chromium window opens, you complete the Google sign-in, and the integration captures your session cookies automatically. |
+| musl/Alpine aarch64 (some ARM boards) | **Manual cookie entry** – Playwright wheels are not available here. You log in to [families.google.com](https://families.google.com) in your own browser, copy your cookies from DevTools (Application → Cookies), and paste them into the setup form. |
+
+**Setup steps:**
+
+1. **Add Integration** – search for "Google Family Link" in *Settings → Devices & Services*
+2. **Configure** – enter a name and optional timing settings
+3. **Authenticate** – either a browser window opens automatically (x86-64), or
+   you are asked to paste cookies (ARM without Playwright)
+4. **Done** – your devices appear as switches in Home Assistant
 
 ## 🤝 Contributing
 
@@ -191,7 +201,6 @@ cd ha-familylink
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements-dev.txt
-playwright install
 
 # Run tests
 python -m pytest tests/
