@@ -8,14 +8,12 @@ DOMAIN: Final = "familylink"
 INTEGRATION_NAME: Final = "Google Family Link"
 
 # Configuration
-CONF_COOKIE_FILE: Final = "cookie_file"
 CONF_UPDATE_INTERVAL: Final = "update_interval"
 CONF_TIMEOUT: Final = "timeout"
 
 # Default values
 DEFAULT_UPDATE_INTERVAL: Final = 60  # seconds
 DEFAULT_TIMEOUT: Final = 30  # seconds
-DEFAULT_COOKIE_FILE: Final = "familylink_cookies.json"
 
 # Family Link URLs
 FAMILYLINK_BASE_URL: Final = "https://families.google.com"
@@ -26,8 +24,6 @@ BROWSER_TIMEOUT: Final = 60000  # milliseconds
 BROWSER_NAVIGATION_TIMEOUT: Final = 30000  # milliseconds
 
 # Session management
-SESSION_REFRESH_INTERVAL: Final = 86400  # 24 hours in seconds
-COOKIE_EXPIRY_BUFFER: Final = 3600  # 1 hour buffer before expiry
 
 # Device control
 DEVICE_LOCK_ACTION: Final = "lock"
