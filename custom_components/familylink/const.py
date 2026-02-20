@@ -10,6 +10,7 @@ INTEGRATION_NAME: Final = "Google Family Link"
 # Configuration
 CONF_UPDATE_INTERVAL: Final = "update_interval"
 CONF_TIMEOUT: Final = "timeout"
+CONF_PAPISID: Final = "papisid"
 
 # Default values
 DEFAULT_UPDATE_INTERVAL: Final = 60  # seconds
