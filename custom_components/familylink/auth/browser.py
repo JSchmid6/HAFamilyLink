@@ -1,125 +1,122 @@
-"""Browser-based authentication for Google Family Link."""
+"""Cookie-based authentication for Google Family Link."""
 from __future__ import annotations
 
-import asyncio
+import json
 import logging
 from typing import Any
-
-from playwright.async_api import async_playwright, Browser, Page
 
 from homeassistant.core import HomeAssistant
 
 from ..const import (
-	BROWSER_TIMEOUT,
-	BROWSER_NAVIGATION_TIMEOUT,
 	FAMILYLINK_BASE_URL,
-	FAMILYLINK_LOGIN_URL,
 	LOGGER_NAME,
 )
-from ..exceptions import AuthenticationError, BrowserError, TimeoutError
+from ..exceptions import AuthenticationError, BrowserError
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
 
 
 class BrowserAuthenticator:
-	"""Handle browser-based authentication for Google Family Link."""
+	"""Handle cookie-based authentication for Google Family Link.
+
+	Instead of browser automation (which is not available on all platforms,
+	e.g. linux_aarch64), users supply their Google session cookies obtained
+	from a browser of their choice.
+	"""
 
 	def __init__(self, hass: HomeAssistant, config: dict[str, Any]) -> None:
-		"""Initialize the browser authenticator."""
+		"""Initialize the authenticator."""
 		self.hass = hass
 		self.config = config
-		self._browser: Browser | None = None
-		self._page: Page | None = None
+
+	_GOOGLE_DOMAINS = frozenset(
+		{".google.com", "google.com", "accounts.google.com", "families.google.com"}
+	)
 
 	async def async_authenticate(self) -> dict[str, Any]:
-		"""Perform browser-based authentication."""
-		_LOGGER.debug("Starting browser authentication")
+		"""Parse and validate cookies supplied by the user."""
+		_LOGGER.debug("Starting cookie-based authentication")
+
+		raw_cookies = self.config.get("cookies_json", "")
 
 		try:
-			async with async_playwright() as playwright:
-				# Launch browser
-				self._browser = await playwright.chromium.launch(
-					headless=False,  # Keep visible for user interaction
-					args=[
-						"--no-sandbox",
-						"--disable-blink-features=AutomationControlled",
-						"--disable-extensions",
-					],
-				)
+			cookie_list = self._parse_cookies(raw_cookies)
+		except (ValueError, TypeError) as err:
+			_LOGGER.error("Failed to parse cookies: %s", err)
+			raise BrowserError(f"Invalid cookie data: {err}") from err
 
-				# Create new page
-				self._page = await self._browser.new_page()
+		relevant_cookies = [
+			cookie for cookie in cookie_list
+			if self._is_google_domain(cookie.get("domain", ""))
+		]
 
-				# Set user agent to avoid detection
-				await self._page.set_extra_http_headers({
-					"User-Agent": (
-						"Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-						"AppleWebKit/537.36 (KHTML, like Gecko) "
-						"Chrome/120.0.0.0 Safari/537.36"
-					)
-				})
-
-				# Navigate to Family Link
-				await self._page.goto(FAMILYLINK_BASE_URL, timeout=BROWSER_NAVIGATION_TIMEOUT)
-
-				# Wait for user to complete authentication
-				session_data = await self._wait_for_authentication()
-
-				return session_data
-
-		except Exception as err:
-			_LOGGER.error("Browser authentication failed: %s", err)
-			raise BrowserError(f"Authentication failed: {err}") from err
-
-		finally:
-			await self._cleanup()
-
-	async def _wait_for_authentication(self) -> dict[str, Any]:
-		"""Wait for user to complete authentication and extract session data."""
-		_LOGGER.info("Waiting for user to complete authentication...")
-
-		try:
-			# Wait for successful login (look for Family Link dashboard)
-			await self._page.wait_for_selector(
-				'[data-testid="family-dashboard"]',
-				timeout=BROWSER_TIMEOUT,
+		if not relevant_cookies:
+			raise AuthenticationError(
+				"No valid Google authentication cookies found. "
+				f"Please log in to {FAMILYLINK_BASE_URL} in your browser, "
+				"copy your cookies and paste them as JSON."
 			)
 
-			# Extract cookies
-			cookies = await self._page.context.cookies()
-			
-			# Filter for relevant Google cookies
-			relevant_cookies = [
-				cookie for cookie in cookies
-				if any(domain in cookie.get("domain", "") for domain in [
-					"google.com", "families.google.com", "accounts.google.com"
-				])
-			]
+		_LOGGER.info("Cookie authentication validated successfully")
 
-			if not relevant_cookies:
-				raise AuthenticationError("No valid authentication cookies found")
+		return {
+			"cookies": relevant_cookies,
+			"authenticated": True,
+		}
 
-			_LOGGER.info("Authentication completed successfully")
+	# ------------------------------------------------------------------
+	# Helpers
+	# ------------------------------------------------------------------
 
-			return {
-				"cookies": relevant_cookies,
-				"authenticated": True,
-				"timestamp": asyncio.get_event_loop().time(),
-			}
+	@classmethod
+	def _is_google_domain(cls, domain: str) -> bool:
+		"""Return True if *domain* is an exact match or subdomain of google.com."""
+		domain = domain.lstrip(".")
+		return domain == "google.com" or domain.endswith(".google.com")
 
-		except asyncio.TimeoutError as err:
-			_LOGGER.error("Authentication timeout")
-			raise TimeoutError("Authentication timeout - user did not complete login") from err
+	@staticmethod
+	def _parse_cookies(raw: str) -> list[dict[str, Any]]:
+		"""Parse a cookie string into a list of cookie dicts.
 
-	async def _cleanup(self) -> None:
-		"""Clean up browser resources."""
-		try:
-			if self._page:
-				await self._page.close()
-			if self._browser:
-				await self._browser.close()
-		except Exception as err:
-			_LOGGER.warning("Error during browser cleanup: %s", err)
+		Accepts two formats:
 
-		self._page = None
-		self._browser = None 
+		- **JSON array** (recommended – preserves exact domain info)::
+
+			[{"name": "SID", "value": "...", "domain": ".google.com"}, ...]
+
+		- **Cookie header string** (convenience – domain defaults to ``.google.com``)::
+
+			SID=value; HSID=value2
+
+		  Because domain information is lost in the header format, all cookies
+		  are assigned the ``.google.com`` root domain.  Use the JSON format when
+		  you need precise per-cookie domain scoping.
+		"""
+		raw = (raw or "").strip()
+		if not raw:
+			raise ValueError("Cookie data is empty")
+
+		if raw.startswith("["):
+			# JSON array format
+			parsed = json.loads(raw)
+			if not isinstance(parsed, list):
+				raise ValueError("Expected a JSON array of cookie objects")
+			for item in parsed:
+				if not isinstance(item, dict):
+					raise ValueError("Each cookie must be a JSON object")
+			return parsed
+
+		# Simple "name=value; name2=value2" header format
+		cookies: list[dict[str, Any]] = []
+		for part in raw.split(";"):
+			part = part.strip()
+			if "=" in part:
+				name, _, value = part.partition("=")
+				cookies.append({
+					"name": name.strip(),
+					"value": value.strip(),
+					"domain": ".google.com",
+				})
+		if not cookies:
+			raise ValueError("Could not parse any cookies from the provided string")
+		return cookies 
