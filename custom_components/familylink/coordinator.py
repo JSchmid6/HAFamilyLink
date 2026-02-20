@@ -87,17 +87,10 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 			raise
 
 	async def _async_refresh_auth(self) -> None:
-		"""Refresh authentication when session expires."""
-		if self.client is None:
-			return
-
-		try:
-			await self.client.async_refresh_session()
-			_LOGGER.info("Successfully refreshed authentication")
-		except Exception as err:
-			_LOGGER.error("Failed to refresh authentication: %s", err)
-			# Clear client to force re-authentication on next update
-			self.client = None
+		"""Trigger re-authentication when the session expires."""
+		_LOGGER.warning("Session expired – initiating re-authentication flow")
+		self.client = None
+		self.entry.async_start_reauth(self.hass)
 
 	async def async_control_device(
 		self, device_id: str, action: str
