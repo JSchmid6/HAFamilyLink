@@ -168,13 +168,21 @@ class BrowserAuthenticator:
 		"""Parse and validate cookies supplied by the user."""
 		_LOGGER.debug("Starting cookie-based authentication")
 
-		raw_cookies = self.config.get("cookies_json", "")
+		papisid = (self.config.get("papisid") or "").strip()
+		raw_cookies = (self.config.get("cookies_json") or "").strip()
 
-		try:
-			cookie_list = _parse_cookies(raw_cookies)
-		except (ValueError, TypeError) as err:
-			_LOGGER.error("Failed to parse cookies: %s", err)
-			raise BrowserError(f"Invalid cookie data: {err}") from err
+		if papisid:
+			cookie_list = [_build_papisid_cookie(papisid)]
+		elif raw_cookies:
+			try:
+				cookie_list = _parse_cookies(raw_cookies)
+			except (ValueError, TypeError) as err:
+				_LOGGER.error("Failed to parse cookies: %s", err)
+				raise BrowserError(f"Invalid cookie data: {err}") from err
+		else:
+			raise AuthenticationError(
+				"Either papisid or cookies_json must be provided for authentication"
+			)
 
 		relevant = [c for c in cookie_list if _is_google_domain(c.get("domain", ""))]
 
@@ -197,6 +205,19 @@ def _is_google_domain(domain: str) -> bool:
 	"""Return True if *domain* is google.com or a subdomain of google.com."""
 	domain = domain.lstrip(".")
 	return domain == "google.com" or domain.endswith(".google.com")
+
+
+def _build_papisid_cookie(value: str) -> dict[str, Any]:
+	"""Build a cookie dict for the ``__Secure-1PAPISID`` cookie."""
+	return {
+		"name": "__Secure-1PAPISID",
+		"value": value,
+		"domain": ".google.com",
+		"path": "/",
+		"secure": True,
+		"httpOnly": False,
+		"sameSite": "None",
+	}
 
 
 def _parse_cookies(raw: str) -> list[dict[str, Any]]:

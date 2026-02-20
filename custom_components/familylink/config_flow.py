@@ -40,7 +40,8 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 
 STEP_COOKIES_DATA_SCHEMA = vol.Schema(
 	{
-		vol.Required("cookies_json"): str,
+		vol.Optional("cookies_json", default=""): str,
+		vol.Optional("papisid", default=""): str,
 	}
 )
 
@@ -138,7 +139,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 			combined = {**self._user_input, **user_input}
 			try:
 				info = await _validate_cookie_input(self.hass, combined)
-				return self.async_create_entry(title=info["title"], data=combined)
+				entry_data = {**combined, "cookies": info["cookies"]}
+				return self.async_create_entry(title=info["title"], data=entry_data)
 			except CannotConnect:
 				errors["base"] = "cannot_connect"
 			except InvalidAuth:
@@ -194,10 +196,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 		if user_input is not None:
 			combined = {**existing_entry.data, **user_input}
 			try:
-				await _validate_cookie_input(self.hass, combined)
+				info = await _validate_cookie_input(self.hass, combined)
+				entry_data = {**combined, "cookies": info["cookies"]}
 				self.hass.config_entries.async_update_entry(
 					existing_entry,
-					data=combined,
+					data=entry_data,
 				)
 				await self.hass.config_entries.async_reload(existing_entry.entry_id)
 				return self.async_abort(reason="reauth_successful")
@@ -226,6 +229,11 @@ async def _validate_cookie_input(
 ) -> dict[str, Any]:
 	"""Validate manually supplied cookies."""
 	from .auth.browser import BrowserAuthenticator
+
+	papisid = (data.get("papisid") or "").strip()
+	cookies_json = (data.get("cookies_json") or "").strip()
+	if not papisid and not cookies_json:
+		raise InvalidAuth
 
 	try:
 		auth = BrowserAuthenticator(hass, data)
