@@ -20,6 +20,7 @@ from .const import (
 	DEFAULT_TIMEOUT,
 	DEFAULT_UPDATE_INTERVAL,
 	DOMAIN,
+	FAMILYLINK_BASE_URL,
 	INTEGRATION_NAME,
 	LOGGER_NAME,
 )
@@ -40,30 +41,31 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 	}
 )
 
+STEP_COOKIES_DATA_SCHEMA = vol.Schema(
+	{
+		vol.Required("cookies_json"): str,
+	}
+)
+
 
 async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
-	"""Validate the user input allows us to connect."""
-	# Import here to avoid circular imports
+	"""Validate the user-supplied cookies."""
 	from .auth.browser import BrowserAuthenticator
 
 	try:
-		# Test browser authentication
 		authenticator = BrowserAuthenticator(hass, data)
-		
-		# This will open a browser for authentication
 		session_data = await authenticator.async_authenticate()
-		
+
 		if not session_data or "cookies" not in session_data:
 			raise AuthenticationError("No valid session data received")
 
-		# Return info that you want to store in the config entry
 		return {
 			"title": data[CONF_NAME],
 			"cookies": session_data["cookies"],
 		}
 
 	except BrowserError as err:
-		_LOGGER.error("Browser authentication failed: %s", err)
+		_LOGGER.error("Cookie authentication failed: %s", err)
 		raise CannotConnect from err
 	except AuthenticationError as err:
 		_LOGGER.error("Authentication failed: %s", err)
@@ -78,19 +80,43 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 	VERSION = 1
 
+	def __init__(self) -> None:
+		"""Initialize the config flow."""
+		self._user_input: dict[str, Any] = {}
+
 	async def async_step_user(
 		self, user_input: dict[str, Any] | None = None
 	) -> FlowResult:
-		"""Handle the initial step."""
+		"""Handle the initial step – basic settings."""
 		errors: dict[str, str] = {}
 
 		if user_input is not None:
+			self._user_input = user_input
+			# Proceed to the cookie entry step
+			return await self.async_step_cookies()
+
+		return self.async_show_form(
+			step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
+		)
+
+	async def async_step_cookies(
+		self, user_input: dict[str, Any] | None = None
+	) -> FlowResult:
+		"""Handle the cookie entry step.
+
+		The user is instructed to log in to Family Link in their own browser,
+		copy their cookies (e.g. via browser DevTools → Application → Cookies),
+		and paste them here as a JSON array or as a ``name=value`` header string.
+		This avoids the need for Playwright or any other browser-automation library
+		that may not be available on all platforms (e.g. linux_aarch64).
+		"""
+		errors: dict[str, str] = {}
+
+		if user_input is not None:
+			combined = {**self._user_input, **user_input}
 			try:
-				# Validate user input
-				info = await validate_input(self.hass, user_input)
-				
-				# Create the config entry
-				return self.async_create_entry(title=info["title"], data=user_input)
+				info = await validate_input(self.hass, combined)
+				return self.async_create_entry(title=info["title"], data=combined)
 
 			except CannotConnect:
 				errors["base"] = "cannot_connect"
@@ -100,17 +126,20 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 				_LOGGER.exception("Unexpected exception")
 				errors["base"] = "unknown"
 
+		description_placeholders = {"familylink_url": FAMILYLINK_BASE_URL}
+
 		return self.async_show_form(
-			step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
+			step_id="cookies",
+			data_schema=STEP_COOKIES_DATA_SCHEMA,
+			errors=errors,
+			description_placeholders=description_placeholders,
 		)
 
 	async def async_step_import(self, import_info: dict[str, Any]) -> FlowResult:
 		"""Handle import from configuration.yaml."""
-		# Check if already configured
 		await self.async_set_unique_id(DOMAIN)
 		self._abort_if_unique_id_configured()
 
-		# Validate imported configuration
 		try:
 			info = await validate_input(self.hass, import_info)
 			return self.async_create_entry(title=info["title"], data=import_info)

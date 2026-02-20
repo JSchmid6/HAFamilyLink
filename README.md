@@ -109,7 +109,6 @@ The integration follows a modular architecture with clear separation of concerns
 
 ```python
 # Core dependencies
-playwright>=1.40.0           # Browser automation
 aiohttp>=3.8.0              # Async HTTP client
 cryptography>=3.4.8        # Cookie encryption
 homeassistant>=2023.10.0    # Home Assistant core
@@ -134,7 +133,7 @@ custom_components/familylink/
 ├── exceptions.py           # Custom exception classes
 ├── auth/
 │   ├── __init__.py
-│   ├── browser.py          # Playwright browser management
+│   ├── browser.py          # Cookie-based authentication
 │   ├── session.py          # Session and cookie handling
 │   └── encryption.py       # Cookie encryption utilities
 ├── client/
@@ -172,7 +171,7 @@ custom_components/familylink/
 ### Configuration
 
 1. **Add Integration**: Search for "Google Family Link" in integrations
-2. **Browser Authentication**: Complete Google login in popup browser
+2. **Cookie Authentication**: Log in to [families.google.com](https://families.google.com) in your browser, copy your Google session cookies from DevTools (Application → Cookies), and paste them into the integration setup
 3. **Device Selection**: Choose devices to control
 4. **Finalise Setup**: Confirm configuration and test devices
 
@@ -191,7 +190,6 @@ cd ha-familylink
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements-dev.txt
-playwright install
 
 # Run tests
 python -m pytest tests/
