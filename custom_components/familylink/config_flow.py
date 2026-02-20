@@ -20,10 +20,11 @@ from .const import (
 	DEFAULT_TIMEOUT,
 	DEFAULT_UPDATE_INTERVAL,
 	DOMAIN,
+	FAMILYLINK_BASE_URL,
 	INTEGRATION_NAME,
 	LOGGER_NAME,
 )
-from .exceptions import AuthenticationError, BrowserError, FamilyLinkException
+from .exceptions import AuthenticationError, BrowserError
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
 
@@ -40,82 +41,169 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 	}
 )
 
+STEP_COOKIES_DATA_SCHEMA = vol.Schema(
+	{
+		vol.Required("cookies_json"): str,
+	}
+)
 
-async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
-	"""Validate the user input allows us to connect."""
-	# Import here to avoid circular imports
+
+class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+	"""Handle a config flow for Google Family Link.
+
+	Authentication strategy is selected automatically:
+
+	* **Playwright available** (x86-64, manylinux ARM): a Chromium window
+	  opens so the user can complete the Google login interactively.  No
+	  manual cookie copying required.
+
+	* **Playwright not available** (musl/Alpine aarch64 and similar): the
+	  user is asked to paste their Google session cookies from their own
+	  browser's DevTools (Application → Cookies).
+	"""
+
+	VERSION = 1
+
+	def __init__(self) -> None:
+		"""Initialize the config flow."""
+		self._user_input: dict[str, Any] = {}
+
+	# ------------------------------------------------------------------
+	# Step 1 – basic settings
+	# ------------------------------------------------------------------
+
+	async def async_step_user(
+		self, user_input: dict[str, Any] | None = None
+	) -> FlowResult:
+		"""Collect general settings, then route to the appropriate auth step."""
+		if user_input is not None:
+			self._user_input = user_input
+
+			from .auth.browser import is_playwright_available
+			if is_playwright_available():
+				return await self.async_step_browser_auth()
+			return await self.async_step_cookies()
+
+		return self.async_show_form(
+			step_id="user",
+			data_schema=STEP_USER_DATA_SCHEMA,
+		)
+
+	# ------------------------------------------------------------------
+	# Step 2a – automated browser auth (Playwright path)
+	# ------------------------------------------------------------------
+
+	async def async_step_browser_auth(
+		self, user_input: dict[str, Any] | None = None
+	) -> FlowResult:
+		"""Run Playwright browser authentication.
+
+		This step has no form – it opens a browser window automatically.
+		On failure it falls back to the manual cookie entry step.
+		"""
+		from .auth.browser import PlaywrightAuthenticator
+
+		_LOGGER.debug("Attempting Playwright browser authentication")
+		try:
+			auth = PlaywrightAuthenticator(self.hass, self._user_input)
+			session_data = await auth.async_authenticate()
+
+			if not session_data or "cookies" not in session_data:
+				raise AuthenticationError("No valid session data received")
+
+			return self.async_create_entry(
+				title=self._user_input[CONF_NAME],
+				data={**self._user_input, "cookies": session_data["cookies"]},
+			)
+
+		except Exception:  # pylint: disable=broad-except
+			_LOGGER.warning(
+				"Playwright authentication failed; falling back to manual cookie entry",
+				exc_info=True,
+			)
+			return await self.async_step_cookies()
+
+	# ------------------------------------------------------------------
+	# Step 2b – manual cookie entry (fallback path)
+	# ------------------------------------------------------------------
+
+	async def async_step_cookies(
+		self, user_input: dict[str, Any] | None = None
+	) -> FlowResult:
+		"""Ask the user to paste their Google session cookies.
+
+		This step is used automatically when Playwright is not available on
+		the current platform (e.g. musl/Alpine aarch64).
+		"""
+		errors: dict[str, str] = {}
+
+		if user_input is not None:
+			combined = {**self._user_input, **user_input}
+			try:
+				info = await _validate_cookie_input(self.hass, combined)
+				return self.async_create_entry(title=info["title"], data=combined)
+			except CannotConnect:
+				errors["base"] = "cannot_connect"
+			except InvalidAuth:
+				errors["base"] = "invalid_auth"
+			except Exception:  # pylint: disable=broad-except
+				_LOGGER.exception("Unexpected exception during cookie validation")
+				errors["base"] = "unknown"
+
+		return self.async_show_form(
+			step_id="cookies",
+			data_schema=STEP_COOKIES_DATA_SCHEMA,
+			errors=errors,
+			description_placeholders={"familylink_url": FAMILYLINK_BASE_URL},
+		)
+
+	# ------------------------------------------------------------------
+	# Import step
+	# ------------------------------------------------------------------
+
+	async def async_step_import(self, import_info: dict[str, Any]) -> FlowResult:
+		"""Handle import from configuration.yaml."""
+		await self.async_set_unique_id(DOMAIN)
+		self._abort_if_unique_id_configured()
+
+		try:
+			info = await _validate_cookie_input(self.hass, import_info)
+			return self.async_create_entry(title=info["title"], data=import_info)
+		except (CannotConnect, InvalidAuth):
+			return self.async_abort(reason="invalid_config")
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+async def _validate_cookie_input(
+	hass: HomeAssistant, data: dict[str, Any]
+) -> dict[str, Any]:
+	"""Validate manually supplied cookies."""
 	from .auth.browser import BrowserAuthenticator
 
 	try:
-		# Test browser authentication
-		authenticator = BrowserAuthenticator(hass, data)
-		
-		# This will open a browser for authentication
-		session_data = await authenticator.async_authenticate()
-		
+		auth = BrowserAuthenticator(hass, data)
+		session_data = await auth.async_authenticate()
+
 		if not session_data or "cookies" not in session_data:
 			raise AuthenticationError("No valid session data received")
 
-		# Return info that you want to store in the config entry
 		return {
 			"title": data[CONF_NAME],
 			"cookies": session_data["cookies"],
 		}
 
 	except BrowserError as err:
-		_LOGGER.error("Browser authentication failed: %s", err)
+		_LOGGER.error("Cookie authentication failed: %s", err)
 		raise CannotConnect from err
 	except AuthenticationError as err:
 		_LOGGER.error("Authentication failed: %s", err)
 		raise InvalidAuth from err
 	except Exception as err:
-		_LOGGER.exception("Unexpected error during validation")
+		_LOGGER.exception("Unexpected error during cookie validation")
 		raise CannotConnect from err
-
-
-class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-	"""Handle a config flow for Google Family Link."""
-
-	VERSION = 1
-
-	async def async_step_user(
-		self, user_input: dict[str, Any] | None = None
-	) -> FlowResult:
-		"""Handle the initial step."""
-		errors: dict[str, str] = {}
-
-		if user_input is not None:
-			try:
-				# Validate user input
-				info = await validate_input(self.hass, user_input)
-				
-				# Create the config entry
-				return self.async_create_entry(title=info["title"], data=user_input)
-
-			except CannotConnect:
-				errors["base"] = "cannot_connect"
-			except InvalidAuth:
-				errors["base"] = "invalid_auth"
-			except Exception:  # pylint: disable=broad-except
-				_LOGGER.exception("Unexpected exception")
-				errors["base"] = "unknown"
-
-		return self.async_show_form(
-			step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
-		)
-
-	async def async_step_import(self, import_info: dict[str, Any]) -> FlowResult:
-		"""Handle import from configuration.yaml."""
-		# Check if already configured
-		await self.async_set_unique_id(DOMAIN)
-		self._abort_if_unique_id_configured()
-
-		# Validate imported configuration
-		try:
-			info = await validate_input(self.hass, import_info)
-			return self.async_create_entry(title=info["title"], data=import_info)
-		except (CannotConnect, InvalidAuth):
-			return self.async_abort(reason="invalid_config")
 
 
 class CannotConnect(HomeAssistantError):

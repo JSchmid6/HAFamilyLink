@@ -1,56 +1,88 @@
-"""Browser-based authentication for Google Family Link."""
+"""Authentication helpers for Google Family Link.
+
+Two authenticators are provided:
+
+* :class:`PlaywrightAuthenticator` – fully automated browser login via
+  Playwright.  Only available when the ``playwright`` package can be
+  imported (x86-64, manylinux aarch64).  Use :func:`is_playwright_available`
+  to check before instantiating.
+
+* :class:`BrowserAuthenticator` – manual cookie-based fallback that works on
+  every platform, including musl/Alpine aarch64 where Playwright wheels are
+  not available.
+"""
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from typing import Any
-
-from playwright.async_api import async_playwright, Browser, Page
 
 from homeassistant.core import HomeAssistant
 
 from ..const import (
-	BROWSER_TIMEOUT,
 	BROWSER_NAVIGATION_TIMEOUT,
+	BROWSER_TIMEOUT,
 	FAMILYLINK_BASE_URL,
-	FAMILYLINK_LOGIN_URL,
 	LOGGER_NAME,
 )
 from ..exceptions import AuthenticationError, BrowserError, TimeoutError
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
 
+# ---------------------------------------------------------------------------
+# Optional playwright import
+# ---------------------------------------------------------------------------
+try:
+	from playwright.async_api import async_playwright  # type: ignore[import]
+	_PLAYWRIGHT_AVAILABLE = True
+except ImportError:
+	_PLAYWRIGHT_AVAILABLE = False
 
-class BrowserAuthenticator:
-	"""Handle browser-based authentication for Google Family Link."""
+
+def is_playwright_available() -> bool:
+	"""Return True if the playwright package is importable on this platform."""
+	return _PLAYWRIGHT_AVAILABLE
+
+
+# ---------------------------------------------------------------------------
+# Playwright-based authenticator (preferred, requires playwright installed)
+# ---------------------------------------------------------------------------
+
+class PlaywrightAuthenticator:
+	"""Handle automated browser-based authentication for Google Family Link.
+
+	Opens a visible Chromium window so the user can complete the Google login
+	flow interactively.  Cookies are extracted automatically once the Family
+	Link dashboard is detected.
+
+	Only instantiate this class after confirming :func:`is_playwright_available`
+	returns ``True``.
+	"""
 
 	def __init__(self, hass: HomeAssistant, config: dict[str, Any]) -> None:
 		"""Initialize the browser authenticator."""
 		self.hass = hass
 		self.config = config
-		self._browser: Browser | None = None
-		self._page: Page | None = None
+		self._browser: Any = None
+		self._page: Any = None
 
 	async def async_authenticate(self) -> dict[str, Any]:
-		"""Perform browser-based authentication."""
-		_LOGGER.debug("Starting browser authentication")
+		"""Open a browser, wait for login, return session cookies."""
+		_LOGGER.debug("Starting Playwright browser authentication")
 
 		try:
 			async with async_playwright() as playwright:
-				# Launch browser
 				self._browser = await playwright.chromium.launch(
-					headless=False,  # Keep visible for user interaction
+					headless=False,
 					args=[
 						"--no-sandbox",
 						"--disable-blink-features=AutomationControlled",
 						"--disable-extensions",
 					],
 				)
-
-				# Create new page
 				self._page = await self._browser.new_page()
 
-				# Set user agent to avoid detection
 				await self._page.set_extra_http_headers({
 					"User-Agent": (
 						"Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -59,67 +91,155 @@ class BrowserAuthenticator:
 					)
 				})
 
-				# Navigate to Family Link
-				await self._page.goto(FAMILYLINK_BASE_URL, timeout=BROWSER_NAVIGATION_TIMEOUT)
+				await self._page.goto(
+					FAMILYLINK_BASE_URL,
+					timeout=BROWSER_NAVIGATION_TIMEOUT,
+				)
 
-				# Wait for user to complete authentication
-				session_data = await self._wait_for_authentication()
+				return await self._wait_for_authentication()
 
-				return session_data
-
+		except (AuthenticationError, TimeoutError):
+			raise
 		except Exception as err:
 			_LOGGER.error("Browser authentication failed: %s", err)
-			raise BrowserError(f"Authentication failed: {err}") from err
-
+			raise BrowserError(f"Browser authentication failed: {err}") from err
 		finally:
 			await self._cleanup()
 
 	async def _wait_for_authentication(self) -> dict[str, Any]:
-		"""Wait for user to complete authentication and extract session data."""
-		_LOGGER.info("Waiting for user to complete authentication...")
+		"""Wait for the Family Link dashboard to appear and extract cookies."""
+		_LOGGER.info("Waiting for user to complete Google login in browser…")
 
 		try:
-			# Wait for successful login (look for Family Link dashboard)
 			await self._page.wait_for_selector(
 				'[data-testid="family-dashboard"]',
 				timeout=BROWSER_TIMEOUT,
 			)
-
-			# Extract cookies
-			cookies = await self._page.context.cookies()
-			
-			# Filter for relevant Google cookies
-			relevant_cookies = [
-				cookie for cookie in cookies
-				if any(domain in cookie.get("domain", "") for domain in [
-					"google.com", "families.google.com", "accounts.google.com"
-				])
-			]
-
-			if not relevant_cookies:
-				raise AuthenticationError("No valid authentication cookies found")
-
-			_LOGGER.info("Authentication completed successfully")
-
-			return {
-				"cookies": relevant_cookies,
-				"authenticated": True,
-				"timestamp": asyncio.get_event_loop().time(),
-			}
-
 		except asyncio.TimeoutError as err:
-			_LOGGER.error("Authentication timeout")
-			raise TimeoutError("Authentication timeout - user did not complete login") from err
+			_LOGGER.error("Authentication timed out")
+			raise TimeoutError(
+				"Authentication timed out – the login was not completed in time"
+			) from err
+
+		cookies = await self._page.context.cookies()
+		relevant = [
+			c for c in cookies
+			if _is_google_domain(c.get("domain", ""))
+		]
+
+		if not relevant:
+			raise AuthenticationError("No valid Google cookies found after login")
+
+		_LOGGER.info("Browser authentication completed successfully")
+		return {"cookies": relevant, "authenticated": True}
 
 	async def _cleanup(self) -> None:
-		"""Clean up browser resources."""
+		"""Close browser resources."""
 		try:
 			if self._page:
 				await self._page.close()
 			if self._browser:
 				await self._browser.close()
-		except Exception as err:
+		except Exception as err:  # pylint: disable=broad-except
 			_LOGGER.warning("Error during browser cleanup: %s", err)
+		finally:
+			self._page = None
+			self._browser = None
 
-		self._page = None
-		self._browser = None 
+
+# ---------------------------------------------------------------------------
+# Cookie-based fallback authenticator (works on every platform)
+# ---------------------------------------------------------------------------
+
+class BrowserAuthenticator:
+	"""Manual cookie-based authentication for Google Family Link.
+
+	Used automatically on platforms where Playwright is not available
+	(e.g. musl/Alpine aarch64).  The user logs in via their own browser and
+	pastes their Google session cookies into the HA config flow.
+	"""
+
+	def __init__(self, hass: HomeAssistant, config: dict[str, Any]) -> None:
+		"""Initialize the cookie authenticator."""
+		self.hass = hass
+		self.config = config
+
+	async def async_authenticate(self) -> dict[str, Any]:
+		"""Parse and validate cookies supplied by the user."""
+		_LOGGER.debug("Starting cookie-based authentication")
+
+		raw_cookies = self.config.get("cookies_json", "")
+
+		try:
+			cookie_list = _parse_cookies(raw_cookies)
+		except (ValueError, TypeError) as err:
+			_LOGGER.error("Failed to parse cookies: %s", err)
+			raise BrowserError(f"Invalid cookie data: {err}") from err
+
+		relevant = [c for c in cookie_list if _is_google_domain(c.get("domain", ""))]
+
+		if not relevant:
+			raise AuthenticationError(
+				"No valid Google authentication cookies found. "
+				f"Please log in to {FAMILYLINK_BASE_URL} in your browser, "
+				"copy your cookies and paste them as JSON."
+			)
+
+		_LOGGER.info("Cookie authentication validated successfully")
+		return {"cookies": relevant, "authenticated": True}
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+def _is_google_domain(domain: str) -> bool:
+	"""Return True if *domain* is google.com or a subdomain of google.com."""
+	domain = domain.lstrip(".")
+	return domain == "google.com" or domain.endswith(".google.com")
+
+
+def _parse_cookies(raw: str) -> list[dict[str, Any]]:
+	"""Parse a cookie string into a list of cookie dicts.
+
+	Accepts two formats:
+
+	- **JSON array** (recommended – preserves exact domain info)::
+
+		[{"name": "SID", "value": "...", "domain": ".google.com"}, ...]
+
+	- **Cookie header string** (convenience – domain defaults to ``.google.com``)::
+
+		SID=value; HSID=value2
+
+	  Because domain information is lost in the header format, all cookies
+	  are assigned the ``.google.com`` root domain.  Use the JSON format when
+	  you need precise per-cookie domain scoping.
+	"""
+	raw = (raw or "").strip()
+	if not raw:
+		raise ValueError("Cookie data is empty")
+
+	if raw.startswith("["):
+		parsed = json.loads(raw)
+		if not isinstance(parsed, list):
+			raise ValueError("Expected a JSON array of cookie objects")
+		for item in parsed:
+			if not isinstance(item, dict):
+				raise ValueError("Each cookie must be a JSON object")
+		return parsed
+
+	# "name=value; name2=value2" header format
+	cookies: list[dict[str, Any]] = []
+	for part in raw.split(";"):
+		part = part.strip()
+		if "=" in part:
+			name, _, value = part.partition("=")
+			cookies.append({
+				"name": name.strip(),
+				"value": value.strip(),
+				"domain": ".google.com",
+			})
+	if not cookies:
+		raise ValueError("Could not parse any cookies from the provided string")
+	return cookies 
