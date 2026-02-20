@@ -13,10 +13,8 @@ from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
 
 from .const import (
-	CONF_COOKIE_FILE,
 	CONF_TIMEOUT,
 	CONF_UPDATE_INTERVAL,
-	DEFAULT_COOKIE_FILE,
 	DEFAULT_TIMEOUT,
 	DEFAULT_UPDATE_INTERVAL,
 	DOMAIN,
@@ -31,7 +29,6 @@ _LOGGER = logging.getLogger(LOGGER_NAME)
 STEP_USER_DATA_SCHEMA = vol.Schema(
 	{
 		vol.Required(CONF_NAME, default=INTEGRATION_NAME): str,
-		vol.Optional(CONF_COOKIE_FILE, default=DEFAULT_COOKIE_FILE): str,
 		vol.Optional(CONF_UPDATE_INTERVAL, default=DEFAULT_UPDATE_INTERVAL): vol.All(
 			vol.Coerce(int), vol.Range(min=30, max=3600)
 		),
@@ -171,6 +168,53 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 			return self.async_create_entry(title=info["title"], data=import_info)
 		except (CannotConnect, InvalidAuth):
 			return self.async_abort(reason="invalid_config")
+
+	# ------------------------------------------------------------------
+	# Re-authentication step (called when session/token expires)
+	# ------------------------------------------------------------------
+
+	async def async_step_reauth(
+		self, user_input: dict[str, Any] | None = None
+	) -> FlowResult:
+		"""Handle re-authentication when the session expires."""
+		return await self.async_step_reauth_confirm()
+
+	async def async_step_reauth_confirm(
+		self, user_input: dict[str, Any] | None = None
+	) -> FlowResult:
+		"""Ask the user to re-enter cookies to renew an expired session."""
+		errors: dict[str, str] = {}
+
+		existing_entry = self.hass.config_entries.async_get_entry(
+			self.context["entry_id"]
+		)
+		if existing_entry is None:
+			return self.async_abort(reason="entry_not_found")
+
+		if user_input is not None:
+			combined = {**existing_entry.data, **user_input}
+			try:
+				await _validate_cookie_input(self.hass, combined)
+				self.hass.config_entries.async_update_entry(
+					existing_entry,
+					data=combined,
+				)
+				await self.hass.config_entries.async_reload(existing_entry.entry_id)
+				return self.async_abort(reason="reauth_successful")
+			except CannotConnect:
+				errors["base"] = "cannot_connect"
+			except InvalidAuth:
+				errors["base"] = "invalid_auth"
+			except Exception:  # pylint: disable=broad-except
+				_LOGGER.exception("Unexpected exception during re-authentication")
+				errors["base"] = "unknown"
+
+		return self.async_show_form(
+			step_id="reauth_confirm",
+			data_schema=STEP_COOKIES_DATA_SCHEMA,
+			errors=errors,
+			description_placeholders={"familylink_url": FAMILYLINK_BASE_URL},
+		)
 
 
 # ---------------------------------------------------------------------------
