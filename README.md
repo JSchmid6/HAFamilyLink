@@ -176,15 +176,41 @@ platform:
 | Platform | Authentication method |
 |---|---|
 | x86-64 / manylinux ARM | **Automatic browser login** – a Chromium window opens, you complete the Google sign-in, and the integration captures your session cookies automatically. |
-| musl/Alpine aarch64 (some ARM boards) | **Manual cookie entry** – Playwright wheels are not available here. You log in to [families.google.com](https://families.google.com) in your own browser, copy your cookies from DevTools (Application → Cookies), and paste them into the setup form. |
+| musl/Alpine aarch64 (some ARM boards, HAOS) | **Manual cookie entry** – Playwright wheels are not available here. You log in to [families.google.com](https://families.google.com) in your own browser, copy your cookies as JSON, and paste them into the setup form. |
 
 **Setup steps:**
 
 1. **Add Integration** – search for "Google Family Link" in *Settings → Devices & Services*
 2. **Configure** – enter a name and optional timing settings
 3. **Authenticate** – either a browser window opens automatically (x86-64), or
-   you are asked to paste cookies (ARM without Playwright)
+   you are asked to paste cookies (see below)
 4. **Done** – your devices appear as switches in Home Assistant
+
+#### How to copy your Google session cookies (manual / HAOS path)
+
+When Playwright is not available (e.g. Home Assistant OS on ARM), the setup
+wizard shows a **"Session cookies (JSON)"** text field.  Here is how to fill it:
+
+1. **Install a cookie-manager browser extension** in Chrome or Edge – two popular
+   options are:
+   - **[Cookie-Editor](https://cookie-editor.com/)** (Chrome / Firefox / Edge)
+   - **[EditThisCookie](https://www.editthiscookie.com/)** (Chrome)
+2. Open **[https://families.google.com](https://families.google.com)** and
+   **log in** with the Google account that manages your Family Link family.
+3. Once you see the Family Link dashboard, click the **cookie-manager extension
+   icon** in your browser toolbar.
+4. **Export the cookies as JSON**:
+   - **Cookie-Editor**: click *Export* → *Export as JSON* → the JSON is copied
+     to your clipboard automatically.
+   - **EditThisCookie**: click the *Export* (clipboard) icon – the cookies are
+     copied as JSON.
+5. **Paste** the copied JSON into the *Session cookies (JSON)* field in the
+   Home Assistant setup wizard and click **Submit**.
+
+> **Session expiry**: Google session cookies eventually expire (typically after
+> a few weeks).  When that happens, Home Assistant will show a
+> **"Re-authenticate"** notification.  Click it and repeat the steps above to
+> paste fresh cookies – no need to remove and re-add the integration.
 
 ## 🤝 Contributing
 
