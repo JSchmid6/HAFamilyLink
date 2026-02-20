@@ -38,16 +38,20 @@ class FamilyLinkClient:
 
 	async def async_authenticate(self) -> None:
 		"""Authenticate with Family Link."""
-		# Try to load existing session
+		# Try to load existing session from the config entry.
 		session_data = await self.session_manager.async_load_session()
-		
-		if session_data and self.session_manager.is_authenticated():
-			_LOGGER.debug("Using existing authentication session")
-			return
 
-		# Need fresh authentication
-		_LOGGER.debug("No valid session found, authentication required")
-		raise AuthenticationError("Authentication required")
+		if not session_data:
+			# No cookies at all – the user needs to (re-)configure the integration.
+			_LOGGER.debug("No session data found, authentication required")
+			raise AuthenticationError("Authentication required")
+
+		if not self.session_manager.is_authenticated():
+			# Cookies are present but the critical auth cookies have expired.
+			_LOGGER.debug("Session cookies have expired, re-authentication required")
+			raise SessionExpiredError("Session cookies have expired")
+
+		_LOGGER.debug("Using existing authentication session")
 
 	async def async_refresh_session(self) -> None:
 		"""Refresh the authentication session."""
