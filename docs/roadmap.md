@@ -1,25 +1,26 @@
 # HAFamilyLink – Entwicklungs-Roadmap
 
-Stand: 21. Februar 2026 · Aktuelle Version: `0.3.0`
+Stand: 21. Februar 2026 · Aktuelle Version: `0.4.3`
 
 ---
 
-## Aktueller Stand (v0.3.0)
+## Aktueller Stand (v0.4.3)
 
 | Bereich | Status |
 |---|---|
 | Cookie-Authentifizierung (Playwright + manuell) | ✅ Vollständig |
 | Session-Validierung & Re-Auth-Flow | ✅ Vollständig |
+| HTTP 401 → Reauth-Trigger | ✅ Vollständig |
+| Cookies als expliziter Header (kein CookieJar) | ✅ Vollständig |
 | Echter kidsmanagement API-Client | ✅ Vollständig |
-| Kinder als HA-Devices (switch platform) | ✅ Grundgerüst |
+| Kinder als HA-Devices (switch platform) | ✅ Vollständig |
+| Sensor-Platform (Bildschirmzeit pro Kind) | ✅ Vollständig |
+| Number-Platform (App-Zeitlimits) | ✅ Vollständig |
+| Options-Flow (Intervall, Timeout) | ✅ Vollständig |
 | 7 LLM-Tools für AI-Conversation-Agents | ✅ Vollständig |
 | Config-Flow (Setup + Re-Auth) | ✅ Vollständig |
-| Copilot Agent Skills | ✅ Vollständig |
-| README / Dokumentation | ✅ Aktuell |
-| Sensor-Platform (Bildschirmzeit) | ❌ Fehlt |
-| Number-Platform (App-Zeitlimits) | ❌ Fehlt |
-| Options-Flow | ❌ Fehlt |
-| Tests | ❌ Fehlt |
+| Tests (15/15 passing) | ✅ Vollständig |
+| HACS-kompatibel | ✅ Vollständig |
 
 ---
 
@@ -98,7 +99,47 @@ DeviceInfo(
 
 ---
 
-## Phase 3 – Sensor-Platform: Bildschirmzeit-Sensoren *(neu)*
+## Phase 8 – v0.5.0: Aktionen & Steuerung
+
+### 8a – Bonus-Zeit gewähren
+
+**Ziel:** Einmalig X Minuten extra Bildschirmzeit für ein Kind gewähren.
+
+**Neue Entity:** `button.{child}_grant_bonus_time` + `number.{child}_bonus_minutes` (5–120 min, Schritt 5)
+
+**API:** `POST /people/{child_id}/apps:updateRestrictions` mit temporärem Limit-Erhöhung
+
+**Version:** `0.5.0`
+
+---
+
+### 8b – App blockieren / entsperren als Button
+
+**Ziel:** Einzelne Apps direkt aus HA sperren oder freigeben.
+
+**Neue Entities pro geblockte App:**
+- `button.{child}_{app}_unblock` – App entsperren
+- `button.{child}_{app}_block` – App blockieren (für alle nicht-geblockte Apps)
+
+**Version:** `0.5.0`
+
+---
+
+### 8c – Schlafenszeit lesen & setzen
+
+**Ziel:** Bedtime-Schedule als `time`-Entity in HA.
+
+**Neue Entities:**
+- `time.{child}_bedtime_start`
+- `time.{child}_bedtime_end`
+
+**API:** Bedtime-Schedule-Endpoint prüfen (aus Browser-DevTools ableiten)
+
+**Version:** `0.5.0`
+
+---
+
+## Phase 3 – Sensor-Platform: Bildschirmzeit & App-Nutzung *(erledigt)*
 
 **Ziel:** Pro Kind zwei Sensoren, die aus dem Coordinator-Cache gelesen werden.
 
@@ -131,7 +172,7 @@ class FamilyLinkScreenTimeSensor(CoordinatorEntity, SensorEntity):
 
 ---
 
-## Phase 4 – Number-Platform: App-Zeitlimits steuern *(neu)*
+## Phase 4 – Number-Platform: App-Zeitlimits steuern *(erledigt)*
 
 **Ziel:** Apps mit gesetztem Tageslimit als `NumberEntity` darstellbar und
 direkt aus HA heraus änderbar.
@@ -243,8 +284,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 | Version | Inhalt |
 |---|---|
 | **0.3.0** *(released)* | Echter API-Client, 7 LLM-Tools, Cookie-Auth |
-| **0.4.0** *(geplant)* | Sensor + Number Entities, Options-Flow, Tests, i18n |
-| **0.5.0** | Mehrere Google-Konten / Familien |
+| **0.4.x** *(released)* | Sensor + Number Entities, Options-Flow, Tests, Cookie-Header-Fix |
+| **0.5.0** | Bonus-Zeit, App-Block/Unblock-Buttons, Bedtime-Entities |
 | **1.0.0** | HACS Default Repository Submission |
 
 ---
