@@ -216,6 +216,55 @@ class FamilyLinkClient:
 			_LOGGER.error("Failed to update restriction for %s: %s", app_name, err)
 			raise DeviceControlError(f"Failed to update restriction: {err}") from err
 
+	async def async_bulk_update_restrictions(
+		self,
+		child_id: str,
+		packages: list[str],
+		minutes: int,
+	) -> None:
+		"""Set (or remove) a daily time limit for multiple apps in **one** API call.
+
+		Args:
+			child_id:  The supervised child's user ID.
+			packages:  List of Android package name strings.
+			minutes:   Daily limit in minutes.  Pass ``0`` to remove all limits.
+		"""
+		if not packages:
+			_LOGGER.debug("async_bulk_update_restrictions: empty package list, nothing to do")
+			return
+
+		restrictions: list[Any] = []
+		for pkg in packages:
+			if minutes > 0:
+				restrictions.append([[pkg], None, [minutes, 1]])
+			else:
+				restrictions.append([[pkg]])  # Remove limit
+
+		_LOGGER.debug(
+			"Bulk-updating %d app restrictions for child %s (minutes=%s)",
+			len(packages), child_id, minutes,
+		)
+		payload = json.dumps([child_id, restrictions])
+		session = await self._get_session()
+		url = f"{KIDSMANAGEMENT_BASE_URL}/people/{child_id}/apps:updateRestrictions"
+		headers = {
+			"Content-Type": "application/json+protobuf",
+			**self._auth_headers(),
+		}
+		try:
+			async with session.post(url, data=payload, headers=headers) as resp:
+				resp.raise_for_status()
+		except aiohttp.ClientResponseError as err:
+			_LOGGER.error(
+				"Bulk restriction update failed [child=%s]: HTTP %s", child_id, err.status
+			)
+			raise DeviceControlError(
+				f"HTTP {err.status} while bulk-updating restrictions"
+			) from err
+		except Exception as err:
+			_LOGGER.error("Bulk restriction update failed [child=%s]: %s", child_id, err)
+			raise DeviceControlError(f"Failed to bulk-update restrictions: {err}") from err
+
 	# ------------------------------------------------------------------
 	# Cleanup
 	# ------------------------------------------------------------------

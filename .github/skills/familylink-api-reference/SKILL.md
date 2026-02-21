@@ -79,8 +79,10 @@ Content-Type: `application/json+protobuf`
 
 Body is a JSON-encoded protobuf array:
 ```
-["{child_id}", [[restriction]]]
+["{child_id}", [[restriction1], [restriction2], ...]]
 ```
+
+Multiple restrictions can be batched in a single call.
 
 Restriction formats:
 | Intent | Payload |
@@ -91,6 +93,16 @@ Restriction formats:
 | Remove limit | `[[pkg]]` |
 
 Where `pkg` is the Android package name string (e.g. `"com.google.android.youtube"`).
+
+**Bulk example** (set limit on multiple apps at once):
+```json
+["child_id", [
+  [["com.app1"], null, [60, 1]],
+  [["com.app2"], null, [60, 1]]
+]]
+```
+
+Helper in `client/api.py`: `async_bulk_update_restrictions(child_id, packages, minutes)`
 
 ---
 

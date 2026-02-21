@@ -192,6 +192,42 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 			child_id, app_name, time_limit_minutes=minutes
 		)
 
+	async def async_remove_app_limit(self, child_id: str, app_name: str) -> None:
+		"""Remove the per-app time limit (set unlimited)."""
+		if self.client is None:
+			await self._async_setup_client()
+		await self.client.async_update_app_restriction(child_id, app_name)
+
+	async def async_set_bulk_limit(self, child_id: str, minutes: int) -> None:
+		"""Set the same daily time limit for **every** supervisable app of a child.
+
+		All apps in *supervisable* (neither blocked nor always-allowed) receive the
+		new limit in a single API call.  Pass ``minutes=0`` to remove all per-app
+		limits, leaving apps unrestricted.
+		"""
+		if self.client is None:
+			await self._async_setup_client()
+
+		# Prefer cached supervisable list to avoid an extra API round-trip
+		packages: list[str] = []
+		if self.data and "restrictions" in self.data:
+			packages = [
+				s["package"]
+				for s in self.data["restrictions"].get(child_id, {}).get("supervisable", [])
+				if s.get("package")
+			]
+
+		if not packages:
+			# Cache miss – fetch fresh data
+			raw = await self.client.async_get_apps_and_usage(child_id)
+			packages = [
+				s["package"]
+				for s in parse_restrictions(raw).get("supervisable", [])
+				if s.get("package")
+			]
+
+		await self.client.async_bulk_update_restrictions(child_id, packages, minutes)
+
 	async def async_block_app(self, child_id: str, app_name: str) -> None:
 		"""Block an app for a child."""
 		if self.client is None:
@@ -203,12 +239,6 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 		if self.client is None:
 			await self._async_setup_client()
 		await self.client.async_update_app_restriction(child_id, app_name, always_allow=True)
-
-	async def async_remove_app_limit(self, child_id: str, app_name: str) -> None:
-		"""Remove the time limit for an app."""
-		if self.client is None:
-			await self._async_setup_client()
-		await self.client.async_update_app_restriction(child_id, app_name)
 
 	async def async_cleanup(self) -> None:
 		"""Clean up coordinator resources."""

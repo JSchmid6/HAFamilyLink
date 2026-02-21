@@ -51,23 +51,46 @@ def parse_usage(raw: dict[str, Any]) -> list[dict[str, Any]]:
 def parse_restrictions(raw: dict[str, Any]) -> dict[str, Any]:
 	"""Parse app restriction settings from a raw appsandusage response.
 
-	Returns a dict with keys ``limited``, ``blocked``, and ``always_allowed``.
+	Returns a dict with keys:
+	  - ``limited``        – apps that have a per-app daily time limit
+	  - ``blocked``        – apps that are entirely hidden/blocked
+	  - ``always_allowed`` – apps explicitly marked as always allowed
+	  - ``supervisable``   – all apps that *can* have a time limit and are
+	                         neither blocked nor always-allowed (includes limited
+	                         ones); used for bulk-limit operations.
 	"""
 	limited: list[dict[str, Any]] = []
 	blocked: list[str] = []
 	always_allowed: list[str] = []
+	supervisable: list[dict[str, str]] = []
 
 	for app in raw.get("apps", []):
 		title = app.get("title", app.get("packageName", ""))
+		pkg = app.get("packageName", "")
 		settings = app.get("supervisionSetting", {})
-		if settings.get("hidden", False):
-			blocked.append(title)
-		elif (limit := settings.get("usageLimit")):
-			limited.append({"app": title, "limit_minutes": limit.get("dailyUsageLimitMins")})
-		elif (
+		caps = app.get("supervisionCapabilities", [])
+		can_limit = "capabilityUsageLimit" in caps
+
+		is_blocked = settings.get("hidden", False)
+		is_always_allowed = (
 			settings.get("alwaysAllowedAppInfo", {}).get("alwaysAllowedState")
 			== "alwaysAllowedStateEnabled"
-		):
+		)
+
+		if is_blocked:
+			blocked.append(title)
+		elif (limit := settings.get("usageLimit")):
+			limited.append({"app": title, "limit_minutes": limit.get("dailyUsageLimitMins"), "package": pkg})
+		elif is_always_allowed:
 			always_allowed.append(title)
 
-	return {"limited": limited, "blocked": blocked, "always_allowed": always_allowed}
+		# All non-blocked, non-always-allowed apps capable of a time limit
+		if can_limit and not is_blocked and not is_always_allowed:
+			supervisable.append({"package": pkg, "title": title})
+
+	return {
+		"limited": limited,
+		"blocked": blocked,
+		"always_allowed": always_allowed,
+		"supervisable": supervisable,
+	}
