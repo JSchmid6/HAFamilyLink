@@ -231,13 +231,30 @@ class FamilyLinkClient:
 	# ------------------------------------------------------------------
 
 	def _auth_headers(self) -> dict[str, str]:
-		"""Build fresh per-request authentication headers."""
+		"""Build fresh per-request authentication headers.
+
+		Cookies are injected as an explicit ``Cookie`` header rather than being
+		managed by the aiohttp CookieJar.  This avoids domain-matching issues
+		when the stored cookies (domain ``.google.com``) are sent to
+		``kidsmanagement-pa.clients6.google.com``.
+		"""
 		sapisid = self._get_sapisid()
-		return {
+		try:
+			cookie_parts = [
+				f"{c['name']}={c['value']}"
+				for c in self.session_manager.get_cookies()
+			]
+			cookie_header = "; ".join(cookie_parts)
+		except Exception:
+			cookie_header = ""
+		headers = {
 			"Authorization": f"SAPISIDHASH {_sapisidhash(sapisid, FAMILYLINK_ORIGIN)}",
 			"Origin": FAMILYLINK_ORIGIN,
 			"X-Goog-Api-Key": GOOG_API_KEY,
 		}
+		if cookie_header:
+			headers["Cookie"] = cookie_header
+		return headers
 
 	def _get_sapisid(self) -> str:
 		"""Extract the SAPISID cookie value from the stored session."""
@@ -260,17 +277,13 @@ class FamilyLinkClient:
 		)
 
 	async def _get_session(self) -> aiohttp.ClientSession:
-		"""Return (or lazily create) the shared aiohttp session."""
-		if self._session is None or self._session.closed:
-			cookies: dict[str, str] = {}
-			try:
-				for c in self.session_manager.get_cookies():
-					cookies[c["name"]] = c["value"]
-			except Exception as err:
-				_LOGGER.warning("Could not load cookies for HTTP session: %s", err)
+		"""Return (or lazily create) the shared aiohttp session.
 
+		Cookies are NOT stored in the session CookieJar – they are injected as
+		an explicit ``Cookie`` header in every request via ``_auth_headers()``.
+		"""
+		if self._session is None or self._session.closed:
 			self._session = aiohttp.ClientSession(
-				cookies=cookies,
 				headers={"User-Agent": _USER_AGENT},
 				timeout=aiohttp.ClientTimeout(total=30),
 			)
