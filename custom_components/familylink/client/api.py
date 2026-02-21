@@ -20,15 +20,21 @@ import aiohttp
 from homeassistant.core import HomeAssistant
 
 from ..auth.session import SessionManager
+from .parsers import parse_applied_time_limits
 from ..const import (
 	CAPABILITY_APP_USAGE,
 	CAPABILITY_SUPERVISION,
+	CAPABILITY_TIME_LIMITS,
 	DEVICE_LOCK_ACTION,
 	DEVICE_UNLOCK_ACTION,
 	FAMILYLINK_ORIGIN,
 	GOOG_API_KEY,
+	GOOG_EXT_BIN_202,
+	GOOG_EXT_BIN_223,
 	KIDSMANAGEMENT_BASE_URL,
 	LOGGER_NAME,
+	OVERRIDE_ACTION_BONUS,
+	OVERRIDE_ACTION_CLEAR,
 )
 from ..exceptions import (
 	AuthenticationError,
@@ -264,6 +270,104 @@ class FamilyLinkClient:
 		except Exception as err:
 			_LOGGER.error("Bulk restriction update failed [child=%s]: %s", child_id, err)
 			raise DeviceControlError(f"Failed to bulk-update restrictions: {err}") from err
+
+	# ------------------------------------------------------------------
+	# Device time limits (appliedTimeLimits)
+	# ------------------------------------------------------------------
+
+	async def async_get_applied_time_limits(
+		self, child_id: str
+	) -> list[dict[str, Any]]:
+		"""Return per-device screen time data for a supervised child.
+
+		Calls ``GET /people/{child_id}/appliedTimeLimits`` and returns a parsed
+		list – one dict per physical device – containing:
+		  - ``device_id``           – Google device ID string
+		  - ``is_locked``           – True when device is currently locked
+		  - ``active_policy``       – current policy state
+		  - ``override_action``     – action name of active override, or None
+		  - ``usage_minutes_today`` – screen time used today in minutes
+		  - ``today_limit_minutes`` – daily usage quota in minutes, or None
+		"""
+		_LOGGER.debug("Fetching applied time limits for child %s", child_id)
+		session = await self._get_session()
+		url = f"{KIDSMANAGEMENT_BASE_URL}/people/{child_id}/appliedTimeLimits"
+		headers = {
+			"Content-Type": "application/json",
+			**self._auth_headers(),
+		}
+		params = {"capabilities": CAPABILITY_TIME_LIMITS}
+		try:
+			async with session.get(url, headers=headers, params=params) as resp:
+				resp.raise_for_status()
+				data = await resp.json(content_type=None)
+		except aiohttp.ClientResponseError as err:
+			_LOGGER.error(
+				"Failed to fetch applied time limits [child=%s]: HTTP %s", child_id, err.status
+			)
+			raise NetworkError(
+				f"HTTP {err.status} while fetching applied time limits"
+			) from err
+		except Exception as err:
+			_LOGGER.error("Failed to fetch applied time limits [child=%s]: %s", child_id, err)
+			raise NetworkError(f"Failed to fetch applied time limits: {err}") from err
+
+		return parse_applied_time_limits(data)
+
+	async def async_set_device_bonus_time(
+		self,
+		child_id: str,
+		device_id: str,
+		bonus_minutes: int,
+	) -> None:
+		"""Grant bonus screen time (or clear overrides) for a specific device.
+
+		Uses ``POST /people/{child_id}/timeLimitOverrides:batchCreate`` with
+		JSPB encoding (``json+protobuf`` content-type).
+
+		Args:
+			child_id:      The supervised child's user ID.
+			device_id:     Target device ID (from appliedTimeLimits).
+			bonus_minutes: Extra minutes to grant today.
+			               Pass ``0`` to clear all active overrides.
+
+		.. note::
+			``action=2`` (OVERRIDE_ACTION_BONUS) with bonus_minutes at JSPB field 6
+			was confirmed as HTTP 200 in API probes.  The semantic mapping to
+			"add bonus time" is inferred; ``action=3`` for clear is confirmed.
+		"""
+		if bonus_minutes > 0:
+			override_entry = [None, None, OVERRIDE_ACTION_BONUS, device_id, None, bonus_minutes]
+		else:
+			override_entry = [None, None, OVERRIDE_ACTION_CLEAR, device_id]
+
+		payload = json.dumps([None, None, [override_entry]])
+		url = f"{KIDSMANAGEMENT_BASE_URL}/people/{child_id}/timeLimitOverrides:batchCreate"
+		headers = {
+			"Content-Type": "application/json+protobuf",
+			"x-goog-ext-223261916-bin": GOOG_EXT_BIN_223,
+			"x-goog-ext-202964622-bin": GOOG_EXT_BIN_202,
+			**self._auth_headers(),
+		}
+		session = await self._get_session()
+		_LOGGER.debug(
+			"Setting device bonus time: child=%s device=%s minutes=%s",
+			child_id, device_id, bonus_minutes,
+		)
+		try:
+			async with session.post(url, data=payload, headers=headers) as resp:
+				resp.raise_for_status()
+		except aiohttp.ClientResponseError as err:
+			_LOGGER.error(
+				"Failed to set device bonus time [child=%s device=%s]: HTTP %s",
+				child_id, device_id, err.status,
+			)
+			raise DeviceControlError(
+				f"HTTP {err.status} while setting device bonus time"
+			) from err
+		except Exception as err:
+			_LOGGER.error("Failed to set device bonus time: %s", err)
+			raise DeviceControlError(f"Failed to set device bonus time: {err}") from err
 
 	# ------------------------------------------------------------------
 	# Cleanup

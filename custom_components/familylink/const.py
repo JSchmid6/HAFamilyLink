@@ -37,6 +37,22 @@ BROWSER_NAVIGATION_TIMEOUT: Final = 30000  # milliseconds
 DEVICE_LOCK_ACTION: Final = "lock"
 DEVICE_UNLOCK_ACTION: Final = "unlock"
 
+# timeLimitOverrides:batchCreate – action values (reverse-engineered from JSPB probes)
+# action=1 → locks the device ("onlyAllowedApps" in appliedTimeLimits response)
+# action=2 → grants bonus screen time (experimental – semantic confirmed by 200 OK + acceptance of minutes at field 6)
+# action=3 → clears all active overrides (empty response = success)
+OVERRIDE_ACTION_LOCK: Final = 1
+OVERRIDE_ACTION_BONUS: Final = 2
+OVERRIDE_ACTION_CLEAR: Final = 3
+
+# Extended binary headers required for timeLimitOverrides:batchCreate
+# These identify the Family Link web client version (reverse-engineered from browser DevTools)
+GOOG_EXT_BIN_223: Final = "Ki4KHzIuNzIuMC4yMDI2dzA3LjIwMjYwMjEwLjA0X1JDMDAQCiIJCgdmYW1saW5r"
+GOOG_EXT_BIN_202: Final = "Ci4IAxIqDS+ogbMwBOkYBN/gBATx8RUPnagBD/v+DQSP4QEEz58GBIfGDQ2j6AYO"
+
+# Capability flag for appliedTimeLimits endpoint
+CAPABILITY_TIME_LIMITS: Final = "TIME_LIMIT_CLIENT_CAPABILITY_SCHOOLTIME"
+
 # Error codes
 ERROR_AUTH_FAILED: Final = "auth_failed"
 ERROR_TIMEOUT: Final = "timeout"

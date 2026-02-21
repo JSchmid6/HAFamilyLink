@@ -94,3 +94,65 @@ def parse_restrictions(raw: dict[str, Any]) -> dict[str, Any]:
 		"always_allowed": always_allowed,
 		"supervisable": supervisable,
 	}
+
+
+def parse_applied_time_limits(raw: dict[str, Any]) -> list[dict[str, Any]]:
+	"""Parse the appliedTimeLimits JSON response into a flat list of device dicts.
+
+	Each entry in ``appliedTimeLimits`` corresponds to one physical device
+	supervised under the child account.
+
+	Returns:
+		List of dicts with keys:
+		  - ``device_id``            – opaque Google device ID string
+		  - ``is_locked``            – True when device is currently locked
+		  - ``active_policy``        – "override" | "timeLimitOn" | "noActivePolicy"
+		  - ``override_action``      – action name from currentOverride, or None
+		  - ``usage_minutes_today``  – screen time used today (minutes, rounded down)
+		  - ``today_limit_minutes``  – daily limit in minutes for today, or None
+	"""
+	devices: list[dict[str, Any]] = []
+	for entry in raw.get("appliedTimeLimits", []):
+		device_id: str = entry.get("deviceId", "")
+		if not device_id:
+			continue
+
+		is_locked: bool = bool(entry.get("isLocked", False))
+		active_policy: str = entry.get("activePolicy", "unknown")
+
+		current_override = entry.get("currentOverride")
+		override_action: str | None = (
+			current_override.get("action") if isinstance(current_override, dict) else None
+		)
+
+		# Screen time used today (API provides milliseconds as string)
+		usage_ms_raw = entry.get("currentUsageUsedMillis", "0") or "0"
+		try:
+			usage_minutes = int(usage_ms_raw) // 60_000
+		except (ValueError, TypeError):
+			usage_minutes = 0
+
+		# Today's daily quota – prefer the "today" entry, fall back to "next"
+		today_limit: int | None = None
+		for limit_key in ("inactiveCurrentUsageLimitEntry", "nextUsageLimitEntry"):
+			limit_entry = entry.get(limit_key)
+			if isinstance(limit_entry, dict):
+				quota = limit_entry.get("usageQuotaMins")
+				if quota is not None:
+					try:
+						today_limit = int(quota)
+					except (ValueError, TypeError):
+						pass
+					break
+
+		devices.append(
+			{
+				"device_id": device_id,
+				"is_locked": is_locked,
+				"active_policy": active_policy,
+				"override_action": override_action,
+				"usage_minutes_today": usage_minutes,
+				"today_limit_minutes": today_limit,
+			}
+		)
+	return devices

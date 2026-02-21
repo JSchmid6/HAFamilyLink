@@ -65,6 +65,7 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 			# 2. Fetch raw appsandusage for every child in parallel (single call per child)
 			usage: dict[str, list[dict[str, Any]]] = {}
 			restrictions: dict[str, dict[str, Any]] = {}
+			devices: dict[str, list[dict[str, Any]]] = {}
 
 			if children:
 				raw_results: list[dict[str, Any] | BaseException] = list(
@@ -92,13 +93,40 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 						usage[cid] = parse_usage(result)
 						restrictions[cid] = parse_restrictions(result)
 
+				# 3. Fetch per-device time limits for every child in parallel
+				device_results: list[list[dict[str, Any]] | BaseException] = list(
+					await asyncio.gather(
+						*[
+							self.client.async_get_applied_time_limits(c["child_id"])
+							for c in children
+						],
+						return_exceptions=True,
+					)
+				)
+				for child, dev_result in zip(children, device_results):
+					cid = child["child_id"]
+					if isinstance(dev_result, BaseException):
+						_LOGGER.warning(
+							"Failed to fetch device limits for child %s: %s", cid, dev_result
+						)
+						devices[cid] = []
+					else:
+						devices[cid] = dev_result
+			# If no children, usage/restrictions/devices stay as empty dicts
+
 			_LOGGER.debug(
-				"Updated data: %d children, usage for %d, restrictions for %d",
+				"Updated data: %d children, usage for %d, restrictions for %d, devices for %d",
 				len(children),
 				len(usage),
 				len(restrictions),
+				len(devices),
 			)
-			return {"children": children, "usage": usage, "restrictions": restrictions}
+			return {
+				"children": children,
+				"usage": usage,
+				"restrictions": restrictions,
+				"devices": devices,
+			}
 
 		except SessionExpiredError:
 			_LOGGER.warning("Session expired, attempting to refresh authentication")
@@ -197,6 +225,21 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 		if self.client is None:
 			await self._async_setup_client()
 		await self.client.async_update_app_restriction(child_id, app_name)
+
+	async def async_set_device_bonus_time(
+		self, child_id: str, device_id: str, bonus_minutes: int
+	) -> None:
+		"""Grant bonus screen time (or clear overrides) for a device.
+
+		Args:
+			child_id:      The supervised child's user ID.
+			device_id:     Target device ID (from appliedTimeLimits).
+			bonus_minutes: Extra minutes to grant today.
+			               Pass ``0`` to clear all active overrides.
+		"""
+		if self.client is None:
+			await self._async_setup_client()
+		await self.client.async_set_device_bonus_time(child_id, device_id, bonus_minutes)
 
 	async def async_set_bulk_limit(self, child_id: str, minutes: int) -> None:
 		"""Set the same daily time limit for **every** supervisable app of a child.
