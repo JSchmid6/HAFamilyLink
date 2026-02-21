@@ -106,6 +106,14 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 			raise UpdateFailed("Session expired, please re-authenticate")
 
 		except FamilyLinkException as err:
+			# HTTP 401 means Google no longer accepts our stored cookies.
+			# Trigger HA's re-authentication UI instead of looping with UpdateFailed.
+			if "401" in str(err):
+				_LOGGER.warning(
+					"HTTP 401 from Family Link API – cookies expired, initiating re-authentication"
+				)
+				await self._async_refresh_auth()
+				raise UpdateFailed("Session expired (HTTP 401), please re-authenticate") from err
 			_LOGGER.error("Error fetching Family Link data: %s", err)
 			raise UpdateFailed(f"Error communicating with Family Link: {err}") from err
 
@@ -128,6 +136,7 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 
 		except Exception as err:
 			_LOGGER.error("Failed to setup Family Link client: %s", err)
+			self.client = None  # ensure next update retries setup
 			raise
 
 	async def _async_refresh_auth(self) -> None:
