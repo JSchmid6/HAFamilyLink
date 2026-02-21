@@ -370,6 +370,100 @@ class FamilyLinkClient:
 			raise DeviceControlError(f"Failed to set device bonus time: {err}") from err
 
 	# ------------------------------------------------------------------
+	# Daily time limits (timeLimit)
+	# ------------------------------------------------------------------
+
+	async def async_get_time_limit(self, child_id: str) -> dict[int, dict[str, Any]]:
+		"""GET /people/{child_id}/timeLimit → day_num → {entry_id, quota_mins}.
+
+		JSPB structure (confirmed from DevTools):
+		  data[1][1][0][2] = list of [entry_id, day_num, type, quota_mins, created_ts, modified_ts]
+		Day numbers: 1=Monday … 7=Sunday.
+		"""
+		_LOGGER.debug("Fetching daily time limits for child %s", child_id)
+		session = await self._get_session()
+		url = f"{KIDSMANAGEMENT_BASE_URL}/people/{child_id}/timeLimit"
+		headers = {
+			"Content-Type": "application/json+protobuf",
+			"x-goog-ext-223261916-bin": GOOG_EXT_BIN_223,
+			"x-goog-ext-202964622-bin": GOOG_EXT_BIN_202,
+			**self._auth_headers(),
+		}
+		try:
+			async with session.get(url, headers=headers) as resp:
+				resp.raise_for_status()
+				raw = await resp.text()
+		except aiohttp.ClientResponseError as err:
+			_LOGGER.error("Failed to fetch time limits [child=%s]: HTTP %s", child_id, err.status)
+			raise NetworkError(f"HTTP {err.status} while fetching time limits") from err
+		except Exception as err:
+			_LOGGER.error("Failed to fetch time limits [child=%s]: %s", child_id, err)
+			raise NetworkError(f"Failed to fetch time limits: {err}") from err
+
+		try:
+			data = json.loads(raw)
+			entries = data[1][1][0][2]
+		except (IndexError, TypeError, KeyError, json.JSONDecodeError) as err:
+			_LOGGER.warning("Unexpected timeLimit JSPB structure for child %s: %s", child_id, err)
+			return {}
+
+		result: dict[int, dict[str, Any]] = {}
+		for entry in entries:
+			try:
+				entry_id: str = entry[0]
+				day_num: int = entry[1]
+				quota_mins: int = entry[3]
+				result[day_num] = {"entry_id": entry_id, "quota_mins": quota_mins}
+			except (IndexError, TypeError):
+				continue
+		_LOGGER.debug("Daily limits for child %s: %s", child_id, result)
+		return result
+
+	async def async_set_daily_limit(
+		self,
+		child_id: str,
+		entry_id: str,
+		quota_mins: int,
+	) -> None:
+		"""PUT /people/{child_id}/timeLimit – set persistent daily screen time limit.
+
+		Confirmed PUT body format (78 bytes for a single entry):
+		  [null, child_id, [null, [[2, null, null, [[entry_id, quota_mins]]]]], null, [1]]
+		"""
+		body = json.dumps(
+			[None, child_id, [None, [[2, None, None, [[entry_id, quota_mins]]]]], None, [1]],
+			separators=(",", ":"),
+		)
+		url = f"{KIDSMANAGEMENT_BASE_URL}/people/{child_id}/timeLimit:update"
+		headers = {
+			"Content-Type": "application/json+protobuf",
+			"x-goog-ext-223261916-bin": GOOG_EXT_BIN_223,
+			"x-goog-ext-202964622-bin": GOOG_EXT_BIN_202,
+			**self._auth_headers(),
+		}
+		session = await self._get_session()
+		_LOGGER.debug(
+			"Setting daily limit: child=%s entry_id=%s quota=%s min",
+			child_id, entry_id, quota_mins,
+		)
+		try:
+			async with session.post(
+				url, data=body, headers=headers, params={"$httpMethod": "PUT"}
+			) as resp:
+				resp.raise_for_status()
+		except aiohttp.ClientResponseError as err:
+			_LOGGER.error(
+				"Failed to set daily limit [child=%s entry=%s]: HTTP %s",
+				child_id, entry_id, err.status,
+			)
+			raise DeviceControlError(
+				f"HTTP {err.status} while setting daily limit"
+			) from err
+		except Exception as err:
+			_LOGGER.error("Failed to set daily limit: %s", err)
+			raise DeviceControlError(f"Failed to set daily limit: {err}") from err
+
+	# ------------------------------------------------------------------
 	# Cleanup
 	# ------------------------------------------------------------------
 

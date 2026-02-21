@@ -93,17 +93,26 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 						usage[cid] = parse_usage(result)
 						restrictions[cid] = parse_restrictions(result)
 
-				# 3. Fetch per-device time limits for every child in parallel
-				device_results: list[list[dict[str, Any]] | BaseException] = list(
+				# 3. Fetch per-device time limits and daily limits in parallel
+				gather_results = list(
 					await asyncio.gather(
 						*[
 							self.client.async_get_applied_time_limits(c["child_id"])
 							for c in children
 						],
+						*[
+							self.client.async_get_time_limit(c["child_id"])
+							for c in children
+						],
 						return_exceptions=True,
 					)
 				)
-				for child, dev_result in zip(children, device_results):
+				n = len(children)
+				device_results = gather_results[:n]
+				daily_results = gather_results[n:]
+
+				daily_limits: dict[str, dict[int, dict]] = {}
+				for child, dev_result, daily_result in zip(children, device_results, daily_results):
 					cid = child["child_id"]
 					if isinstance(dev_result, BaseException):
 						_LOGGER.warning(
@@ -112,20 +121,29 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 						devices[cid] = []
 					else:
 						devices[cid] = dev_result
-			# If no children, usage/restrictions/devices stay as empty dicts
+					if isinstance(daily_result, BaseException):
+						_LOGGER.warning(
+							"Failed to fetch daily limits for child %s: %s", cid, daily_result
+						)
+						daily_limits[cid] = {}
+					else:
+						daily_limits[cid] = daily_result
+			# If no children, all dicts stay empty
 
 			_LOGGER.debug(
-				"Updated data: %d children, usage for %d, restrictions for %d, devices for %d",
+				"Updated data: %d children, usage for %d, restrictions for %d, devices for %d, daily_limits for %d",
 				len(children),
 				len(usage),
 				len(restrictions),
 				len(devices),
+				len(daily_limits),
 			)
 			return {
 				"children": children,
 				"usage": usage,
 				"restrictions": restrictions,
 				"devices": devices,
+				"daily_limits": daily_limits,
 			}
 
 		except SessionExpiredError:
@@ -225,6 +243,27 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 		if self.client is None:
 			await self._async_setup_client()
 		await self.client.async_update_app_restriction(child_id, app_name)
+
+	async def async_set_daily_limit(
+		self, child_id: str, day_num: int, quota_mins: int
+	) -> None:
+		"""Set the persistent daily screen time limit for one day of the week.
+
+		Args:
+			child_id:   The supervised child's user ID.
+			day_num:    Day number (1=Monday … 7=Sunday).
+			quota_mins: New daily limit in minutes.
+		"""
+		if self.client is None:
+			await self._async_setup_client()
+		# Resolve entry_id from cached data
+		try:
+			entry_id: str = self.data["daily_limits"][child_id][day_num]["entry_id"]
+		except (KeyError, TypeError) as err:
+			raise ValueError(
+				f"No daily limit entry found for child {child_id} day {day_num}"
+			) from err
+		await self.client.async_set_daily_limit(child_id, entry_id, quota_mins)
 
 	async def async_set_device_bonus_time(
 		self, child_id: str, device_id: str, bonus_minutes: int

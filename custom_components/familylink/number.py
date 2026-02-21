@@ -1,4 +1,5 @@
-"""Number platform for Google Family Link – per-app daily time limits & device bonus time.
+"""Number platform for Google Family Link – per-app daily time limits, device bonus time,
+and persistent daily screen time limits (Tageslimit).
 
 For each supervised child, a NumberEntity is created for every supervisable app.
 A value of 0 means no limit; setting 0 removes an existing limit.
@@ -6,6 +7,9 @@ A value of 0 means no limit; setting 0 removes an existing limit.
 Additionally, one DeviceBonusTimeNumber is created per physical device.
 Setting a value > 0 grants bonus screen time via timeLimitOverrides:batchCreate.
 Setting to 0 clears all active overrides.
+
+One DeviceDailyLimitNumber is created per child × day (7 per child),
+representing the persistent daily screen time quota (timeLimit endpoint).
 """
 from __future__ import annotations
 
@@ -25,6 +29,16 @@ from .const import DOMAIN, FAMILYLINK_BASE_URL, LOGGER_NAME
 from .coordinator import FamilyLinkDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
+
+_DAY_NAMES: dict[int, str] = {
+	1: "Monday",
+	2: "Tuesday",
+	3: "Wednesday",
+	4: "Thursday",
+	5: "Friday",
+	6: "Saturday",
+	7: "Sunday",
+}
 
 
 async def async_setup_entry(
@@ -55,7 +69,11 @@ async def async_setup_entry(
 			for dev in devices_map.get(cid, []):
 				entities.append(DeviceBonusTimeNumber(coordinator, child, dev["device_id"]))
 
-	async_add_entities(entities, update_before_add=True)
+			# Daily limit entities (one per day per child)
+			daily_limits_map: dict[str, Any] = coordinator.data.get("daily_limits", {})
+			for day_num in range(1, 8):
+				if day_num in daily_limits_map.get(cid, {}):
+					entities.append(DeviceDailyLimitNumber(coordinator, child, day_num))
 
 
 class AppTimeLimitNumber(CoordinatorEntity, NumberEntity):
@@ -175,5 +193,68 @@ class DeviceBonusTimeNumber(CoordinatorEntity, NumberEntity):
 		"""Grant bonus time or clear overrides. 0 = clear; N > 0 = grant N minutes."""
 		await self.coordinator.async_set_device_bonus_time(
 			self._child_id, self._device_id, int(value)
+		)
+		await self.coordinator.async_request_refresh()
+
+
+class DeviceDailyLimitNumber(CoordinatorEntity, NumberEntity):
+	"""Persistent daily screen time quota for one day of the week.
+
+	Reads from and writes to the ``timeLimit`` endpoint
+	(PUT /people/{child_id}/timeLimit:update).  One entity per child per day.
+	"""
+
+	_attr_mode = NumberMode.BOX
+	_attr_native_min_value = 0.0
+	_attr_native_max_value = 720.0
+	_attr_native_step = 5.0
+	_attr_native_unit_of_measurement = UnitOfTime.MINUTES
+	_attr_icon = "mdi:timer-lock-outline"
+
+	def __init__(
+		self,
+		coordinator: FamilyLinkDataUpdateCoordinator,
+		child: dict[str, Any],
+		day_num: int,
+	) -> None:
+		"""Initialize the daily limit number entity."""
+		super().__init__(coordinator)
+		self._child_id: str = child["child_id"]
+		self._child_name: str = child.get("name", self._child_id)
+		self._day_num: int = day_num
+		day_name = _DAY_NAMES[day_num]
+		self._attr_name = f"{self._child_name} Daily Limit {day_name}"
+		self._attr_unique_id = f"{DOMAIN}_{self._child_id}_daily_limit_{day_num}"
+
+	@property
+	def device_info(self) -> DeviceInfo:
+		"""Group entity under the child HA device."""
+		return DeviceInfo(
+			identifiers={(DOMAIN, self._child_id)},
+			name=self._child_name,
+			manufacturer="Google",
+			model="Supervised Child",
+			entry_type=DeviceEntryType.SERVICE,
+			configuration_url=FAMILYLINK_BASE_URL,
+		)
+
+	@property
+	def native_value(self) -> float | None:
+		"""Return the current daily limit in minutes."""
+		if not self.coordinator.data:
+			return None
+		day_data = (
+			self.coordinator.data.get("daily_limits", {})
+			.get(self._child_id, {})
+			.get(self._day_num)
+		)
+		if day_data is None:
+			return None
+		return float(day_data["quota_mins"])
+
+	async def async_set_native_value(self, value: float) -> None:
+		"""Push the updated daily limit to Google Family Link."""
+		await self.coordinator.async_set_daily_limit(
+			self._child_id, self._day_num, int(value)
 		)
 		await self.coordinator.async_request_refresh()
