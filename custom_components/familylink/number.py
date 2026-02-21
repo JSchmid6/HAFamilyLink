@@ -75,6 +75,8 @@ async def async_setup_entry(
 				if day_num in daily_limits_map.get(cid, {}):
 					entities.append(DeviceDailyLimitNumber(coordinator, child, day_num))
 
+	async_add_entities(entities)
+
 
 class AppTimeLimitNumber(CoordinatorEntity, NumberEntity):
 	"""Adjustable daily time limit (minutes) for one app on a child device.
