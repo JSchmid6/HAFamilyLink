@@ -15,7 +15,7 @@ DEFAULT_UPDATE_INTERVAL: Final = 60  # seconds
 DEFAULT_TIMEOUT: Final = 30  # seconds
 
 # Family Link URLs
-FAMILYLINK_BASE_URL: Final = "https://families.google.com"
+FAMILYLINK_BASE_URL: Final = "https://familylink.google.com"
 FAMILYLINK_LOGIN_URL: Final = "https://accounts.google.com/signin"
 
 # Google Kids Management API (unofficial)

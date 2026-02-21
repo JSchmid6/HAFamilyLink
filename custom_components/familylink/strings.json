@@ -31,7 +31,7 @@
       },
       "cookies": {
         "title": "Google Session Cookies",
-        "description": "Automated browser login is not available on this platform.\n\n1. Install **[Cookie-Editor](https://cookie-editor.com/)** in Chrome, Firefox or Edge.\n2. Open **[families.google.com]({familylink_url})** and log in.\n3. Click the Cookie-Editor icon and choose **Export → Export as JSON**.\n4. Paste the JSON into the field below.",
+        "description": "Automated browser login is not available on this platform.\n\n1. Install **[Cookie-Editor](https://cookie-editor.com/)** in Chrome, Firefox or Edge.\n2. Open **[familylink.google.com]({familylink_url})** and log in.\n3. Click the Cookie-Editor icon and choose **Export → Export as JSON**.\n4. Paste the JSON into the field below.",
         "data": {
           "cookies_json": "Session cookies (JSON)"
         },
@@ -41,7 +41,7 @@
       },
       "reauth_confirm": {
         "title": "Re-authenticate – Session Expired",
-        "description": "Your Google Family Link session has expired.\n\n1. Install **[Cookie-Editor](https://cookie-editor.com/)** in Chrome, Firefox or Edge.\n2. Open **[families.google.com]({familylink_url})** and log in.\n3. Click the Cookie-Editor icon and choose **Export → Export as JSON**.\n4. Paste the JSON into the field below.",
+        "description": "Your Google Family Link session has expired.\n\n1. Install **[Cookie-Editor](https://cookie-editor.com/)** in Chrome, Firefox or Edge.\n2. Open **[familylink.google.com]({familylink_url})** and log in.\n3. Click the Cookie-Editor icon and choose **Export → Export as JSON**.\n4. Paste the JSON into the field below.",
         "data": {
           "cookies_json": "Session cookies (JSON)"
         },
