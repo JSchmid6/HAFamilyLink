@@ -31,26 +31,22 @@
       },
       "cookies": {
         "title": "Google Session Cookies",
-        "description": "Automated browser login is not available on this platform. You can authenticate in one of two ways:\n\n**Option A – Single cookie value (easiest)**\n1. Open **[families.google.com]({familylink_url})** in your browser and log in.\n2. Open DevTools (F12) → Application → Cookies → `https://accounts.google.com`.\n3. Find the cookie named `__Secure-1PAPISID` and copy its value.\n4. Paste it into the **__Secure-1PAPISID cookie value** field below.\n\n**Option B – Full JSON export**\n1. Install a cookie-manager extension such as **[Cookie-Editor](https://cookie-editor.com/)** in Chrome or Edge.\n2. Open **[families.google.com]({familylink_url})** and log in.\n3. Click the extension icon and choose **Export as JSON**.\n4. Paste the JSON into the **Session cookies (JSON)** field below.",
+        "description": "Automated browser login is not available on this platform.\n\n1. Install **[Cookie-Editor](https://cookie-editor.com/)** in Chrome, Firefox or Edge.\n2. Open **[families.google.com]({familylink_url})** and log in.\n3. Click the Cookie-Editor icon and choose **Export → Export as JSON**.\n4. Paste the JSON into the field below.",
         "data": {
-          "papisid": "__Secure-1PAPISID cookie value",
           "cookies_json": "Session cookies (JSON)"
         },
         "data_description": {
-          "papisid": "The value of the `__Secure-1PAPISID` cookie from accounts.google.com. Use this as a simpler alternative to exporting the full cookie JSON.",
-          "cookies_json": "Full JSON cookie array exported from your browser (e.g. via Cookie-Editor). Used when providing the full cookie context. Leave empty if using the __Secure-1PAPISID field above."
+          "cookies_json": "Full JSON cookie array exported from your browser via Cookie-Editor."
         }
       },
       "reauth_confirm": {
         "title": "Re-authenticate – Session Expired",
-        "description": "Your Google Family Link session has expired. Provide fresh credentials from **[families.google.com]({familylink_url})** using one of the two options below.\n\n**Option A – Single cookie value (easiest)**\nCopy the `__Secure-1PAPISID` cookie value from DevTools (Application → Cookies → `https://accounts.google.com`) and paste it below.\n\n**Option B – Full JSON export**\nInstall **[Cookie-Editor](https://cookie-editor.com/)**, export cookies as JSON from families.google.com, and paste below.",
+        "description": "Your Google Family Link session has expired.\n\n1. Install **[Cookie-Editor](https://cookie-editor.com/)** in Chrome, Firefox or Edge.\n2. Open **[families.google.com]({familylink_url})** and log in.\n3. Click the Cookie-Editor icon and choose **Export → Export as JSON**.\n4. Paste the JSON into the field below.",
         "data": {
-          "papisid": "__Secure-1PAPISID cookie value",
           "cookies_json": "Session cookies (JSON)"
         },
         "data_description": {
-          "papisid": "The value of the `__Secure-1PAPISID` cookie from accounts.google.com.",
-          "cookies_json": "Full JSON cookie array exported from your browser. Leave empty if using the __Secure-1PAPISID field above."
+          "cookies_json": "Full JSON cookie array exported from your browser via Cookie-Editor."
         }
       }
     },

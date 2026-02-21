@@ -40,8 +40,7 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 
 STEP_COOKIES_DATA_SCHEMA = vol.Schema(
 	{
-		vol.Optional("cookies_json", default=""): str,
-		vol.Optional("papisid", default=""): str,
+		vol.Required("cookies_json"): str,
 	}
 )
 
@@ -242,9 +241,8 @@ async def _validate_cookie_input(
 	"""Validate manually supplied cookies."""
 	from .auth.browser import BrowserAuthenticator
 
-	papisid = (data.get("papisid") or "").strip()
 	cookies_json = (data.get("cookies_json") or "").strip()
-	if not papisid and not cookies_json:
+	if not cookies_json:
 		raise InvalidAuth
 
 	try:
