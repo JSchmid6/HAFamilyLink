@@ -20,6 +20,15 @@ DEFAULT_TIMEOUT: Final = 30  # seconds
 FAMILYLINK_BASE_URL: Final = "https://families.google.com"
 FAMILYLINK_LOGIN_URL: Final = "https://accounts.google.com/signin"
 
+# Google Kids Management API (unofficial)
+KIDSMANAGEMENT_BASE_URL: Final = "https://kidsmanagement-pa.clients6.google.com/kidsmanagement/v1"
+FAMILYLINK_ORIGIN: Final = "https://familylink.google.com"
+GOOG_API_KEY: Final = "AIzaSyAQb1gupaJhY3CXQy2xmTwJMcjmot3M2hw"
+
+# API capability flags used when fetching app data
+CAPABILITY_APP_USAGE: Final = "CAPABILITY_APP_USAGE_SESSION"
+CAPABILITY_SUPERVISION: Final = "CAPABILITY_SUPERVISION_CAPABILITIES"
+
 # Browser settings
 BROWSER_TIMEOUT: Final = 60000  # milliseconds
 BROWSER_NAVIGATION_TIMEOUT: Final = 30000  # milliseconds

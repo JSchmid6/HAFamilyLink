@@ -1,4 +1,19 @@
 {
+  "options": {
+    "step": {
+      "init": {
+        "title": "Google Family Link – Options",
+        "data": {
+          "update_interval": "Update interval (seconds)",
+          "timeout": "Request timeout (seconds)"
+        },
+        "data_description": {
+          "update_interval": "How often to poll Google Family Link for data changes (30–3600 s).",
+          "timeout": "Maximum time to wait for a response from Google (10–120 s)."
+        }
+      }
+    }
+  },
   "config": {
     "step": {
       "user": {

@@ -157,6 +157,18 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 		)
 
 	# ------------------------------------------------------------------
+	# Options flow
+	# ------------------------------------------------------------------
+
+	@staticmethod
+	@config_entries.callback
+	def async_get_options_flow(
+		config_entry: config_entries.ConfigEntry,
+	) -> "OptionsFlowHandler":
+		"""Return the options flow handler."""
+		return OptionsFlowHandler(config_entry)
+
+	# ------------------------------------------------------------------
 	# Import step
 	# ------------------------------------------------------------------
 
@@ -263,4 +275,39 @@ class CannotConnect(HomeAssistantError):
 
 
 class InvalidAuth(HomeAssistantError):
-	"""Error to indicate there is invalid auth.""" 
+	"""Error to indicate there is invalid auth."""
+
+
+class OptionsFlowHandler(config_entries.OptionsFlow):
+	"""Handle options for Family Link (polling interval, request timeout)."""
+
+	def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+		"""Initialize the options flow."""
+		self.config_entry = config_entry
+
+	async def async_step_init(
+		self, user_input: dict[str, Any] | None = None
+	) -> FlowResult:
+		"""Manage integration options."""
+		if user_input is not None:
+			return self.async_create_entry(title="", data=user_input)
+
+		schema = vol.Schema(
+			{
+				vol.Optional(
+					CONF_UPDATE_INTERVAL,
+					default=self.config_entry.options.get(
+						CONF_UPDATE_INTERVAL,
+						self.config_entry.data.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL),
+					),
+				): vol.All(vol.Coerce(int), vol.Range(min=30, max=3600)),
+				vol.Optional(
+					CONF_TIMEOUT,
+					default=self.config_entry.options.get(
+						CONF_TIMEOUT,
+						self.config_entry.data.get(CONF_TIMEOUT, DEFAULT_TIMEOUT),
+					),
+				): vol.All(vol.Coerce(int), vol.Range(min=10, max=120)),
+			}
+		)
+		return self.async_show_form(step_id="init", data_schema=schema)

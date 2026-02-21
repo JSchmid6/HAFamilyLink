@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
@@ -12,10 +11,11 @@ from homeassistant.exceptions import ConfigEntryNotReady
 from .const import DOMAIN, LOGGER_NAME
 from .coordinator import FamilyLinkDataUpdateCoordinator
 from .exceptions import FamilyLinkException
+from .llm_api import async_register_llm_api
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
 
-PLATFORMS: list[Platform] = [Platform.SWITCH]
+PLATFORMS: list[Platform] = [Platform.SWITCH, Platform.SENSOR, Platform.NUMBER]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -35,6 +35,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 		# Forward setup to platforms
 		await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+		# Register LLM agent skills (tools) for conversation agents
+		async_register_llm_api(hass, entry)
+
+		# Reload the entry when the user changes options (e.g. polling interval)
+		entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
 		_LOGGER.info("Successfully set up Family Link integration")
 		return True

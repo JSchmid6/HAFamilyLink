@@ -1,4 +1,9 @@
-"""Switch platform for Google Family Link integration."""
+"""Switch platform for Google Family Link integration.
+
+One switch per supervised child.  The switch represents whether supervision
+is active (always ``True``).  It cannot be physically turned off via HA –
+doing so logs a warning and leaves the state unchanged.
+"""
 from __future__ import annotations
 
 import logging
@@ -7,20 +12,14 @@ from typing import Any
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceEntryType
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
-	ATTR_DEVICE_ID,
-	ATTR_DEVICE_NAME,
-	ATTR_DEVICE_TYPE,
-	ATTR_LAST_SEEN,
-	ATTR_LOCKED,
-	DEVICE_LOCK_ACTION,
-	DEVICE_UNLOCK_ACTION,
 	DOMAIN,
-	INTEGRATION_NAME,
+	FAMILYLINK_BASE_URL,
 	LOGGER_NAME,
 )
 from .coordinator import FamilyLinkDataUpdateCoordinator
@@ -33,113 +32,82 @@ async def async_setup_entry(
 	entry: ConfigEntry,
 	async_add_entities: AddEntitiesCallback,
 ) -> None:
-	"""Set up Family Link switch entities from a config entry."""
-	coordinator = hass.data[DOMAIN][entry.entry_id]
+	"""Set up one switch entity per supervised child."""
+	coordinator: FamilyLinkDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
 
-	entities = []
-	
-	# Create switch entities for each device
-	if coordinator.data and "devices" in coordinator.data:
-		for device in coordinator.data["devices"]:
-			entities.append(FamilyLinkDeviceSwitch(coordinator, device))
+	entities: list[ChildSupervisionSwitch] = []
+	if coordinator.data and "children" in coordinator.data:
+		for child in coordinator.data["children"]:
+			entities.append(ChildSupervisionSwitch(coordinator, child))
 
 	async_add_entities(entities, update_before_add=True)
 
 
-class FamilyLinkDeviceSwitch(CoordinatorEntity, SwitchEntity):
-	"""Representation of a Family Link device as a switch."""
+class ChildSupervisionSwitch(CoordinatorEntity, SwitchEntity):
+	"""Switch indicating that supervision is active for a child.
+
+	The switch is always ``on`` (supervision cannot be disabled through HA).
+	"""
+
+	_attr_icon = "mdi:account-child-circle"
 
 	def __init__(
 		self,
 		coordinator: FamilyLinkDataUpdateCoordinator,
-		device: dict[str, Any],
+		child: dict[str, Any],
 	) -> None:
 		"""Initialize the switch."""
 		super().__init__(coordinator)
-		
-		self._device = device
-		self._device_id = device["id"]
-		self._attr_name = device.get("name", f"Family Link Device {self._device_id}")
-		self._attr_unique_id = f"{DOMAIN}_{self._device_id}"
+		self._child_id: str = child["child_id"]
+		self._child_name: str = child.get("name", self._child_id)
+		self._attr_name = f"{self._child_name} Supervision"
+		self._attr_unique_id = f"{DOMAIN}_{self._child_id}_supervision"
 
 	@property
 	def device_info(self) -> DeviceInfo:
-		"""Return device information."""
+		"""Return device information for the supervised child."""
 		return DeviceInfo(
-			identifiers={(DOMAIN, self._device_id)},
-			name=self._attr_name,
+			identifiers={(DOMAIN, self._child_id)},
+			name=self._child_name,
 			manufacturer="Google",
-			model="Family Link Device",
-			sw_version=self._device.get("version"),
+			model="Supervised Child",
+			entry_type=DeviceEntryType.SERVICE,
+			configuration_url=FAMILYLINK_BASE_URL,
 		)
 
 	@property
 	def is_on(self) -> bool:
-		"""Return True if device is unlocked (switch on = unlocked)."""
-		if self.coordinator.data and "devices" in self.coordinator.data:
-			# Find current device data
-			for device in self.coordinator.data["devices"]:
-				if device["id"] == self._device_id:
-					# Switch is "on" when device is unlocked
-					return not device.get("locked", False)
-		
-		# Fallback to cached device data
-		return not self._device.get("locked", False)
+		"""Return True – supervision is always active."""
+		return True
 
 	@property
 	def available(self) -> bool:
-		"""Return True if entity is available."""
+		"""Return True when the last coordinator update succeeded."""
 		return self.coordinator.last_update_success
 
 	@property
-	def icon(self) -> str:
-		"""Return the icon for the switch."""
-		return "mdi:cellphone-lock" if not self.is_on else "mdi:cellphone"
-
-	@property
 	def extra_state_attributes(self) -> dict[str, Any]:
-		"""Return extra state attributes."""
-		attributes = {
-			ATTR_DEVICE_ID: self._device_id,
-			ATTR_DEVICE_NAME: self._attr_name,
-		}
-
-		# Add additional device information if available
-		if self.coordinator.data and "devices" in self.coordinator.data:
-			for device in self.coordinator.data["devices"]:
-				if device["id"] == self._device_id:
-					if "type" in device:
-						attributes[ATTR_DEVICE_TYPE] = device["type"]
-					if "last_seen" in device:
-						attributes[ATTR_LAST_SEEN] = device["last_seen"]
-					if "locked" in device:
-						attributes[ATTR_LOCKED] = device["locked"]
+		"""Return child metadata as state attributes."""
+		attrs: dict[str, Any] = {"child_id": self._child_id}
+		if self.coordinator.data:
+			# Find the child's current entry to expose email etc.
+			for child in self.coordinator.data.get("children", []):
+				if child["child_id"] == self._child_id:
+					attrs["email"] = child.get("email", "")
 					break
+		return attrs
 
-		return attributes
-
-	async def async_turn_on(self) -> None:
-		"""Turn the switch on (unlock device)."""
-		_LOGGER.debug("Unlocking device %s", self._device_id)
-		
-		success = await self.coordinator.async_control_device(
-			self._device_id, DEVICE_UNLOCK_ACTION
+	async def async_turn_on(self, **kwargs: Any) -> None:
+		"""No-op: supervision cannot be toggled via HA."""
+		_LOGGER.warning(
+			"Turning on supervision switch for %s is a no-op – supervision is always active.",
+			self._child_name,
 		)
-		
-		if not success:
-			_LOGGER.error("Failed to unlock device %s", self._device_id)
-		else:
-			_LOGGER.info("Successfully unlocked device %s", self._device_id)
 
-	async def async_turn_off(self) -> None:
-		"""Turn the switch off (lock device)."""
-		_LOGGER.debug("Locking device %s", self._device_id)
-		
-		success = await self.coordinator.async_control_device(
-			self._device_id, DEVICE_LOCK_ACTION
+	async def async_turn_off(self, **kwargs: Any) -> None:
+		"""No-op: supervision cannot be disabled via HA."""
+		_LOGGER.warning(
+			"Turning off supervision switch for %s is not supported – "
+			"use the Family Link app to manage parental controls.",
+			self._child_name,
 		)
-		
-		if not success:
-			_LOGGER.error("Failed to lock device %s", self._device_id)
-		else:
-			_LOGGER.info("Successfully locked device %s", self._device_id) 

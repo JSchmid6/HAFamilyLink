@@ -4,6 +4,6 @@
 	"filename": "familylink",
 	"country": ["GB", "US", "CA", "AU"],
 	"render_readme": true,
-	"domains": ["switch"],
+	"domains": ["switch", "sensor", "number"],
 	"homeassistant": "2023.10.0"
 } 
