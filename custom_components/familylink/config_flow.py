@@ -138,7 +138,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 			combined = {**self._user_input, **user_input}
 			try:
 				info = await _validate_cookie_input(self.hass, combined)
-				entry_data = {**combined, "cookies": info["cookies"]}
+				# Explicitly exclude cookies_json from persistent storage –
+				# only keep the parsed cookies list to avoid bloating entry.data.
+				entry_data = {
+					k: v for k, v in combined.items() if k != "cookies_json"
+				}
+				entry_data["cookies"] = info["cookies"]
 				return self.async_create_entry(title=info["title"], data=entry_data)
 			except CannotConnect:
 				errors["base"] = "cannot_connect"
@@ -208,7 +213,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 			combined = {**existing_entry.data, **user_input}
 			try:
 				info = await _validate_cookie_input(self.hass, combined)
-				entry_data = {**combined, "cookies": info["cookies"]}
+				# Explicitly exclude cookies_json from persistent storage –
+				# only keep the parsed cookies list to avoid bloating entry.data.
+				entry_data = {
+					k: v for k, v in combined.items() if k != "cookies_json"
+				}
+				entry_data["cookies"] = info["cookies"]
 				self.hass.config_entries.async_update_entry(
 					existing_entry,
 					data=entry_data,

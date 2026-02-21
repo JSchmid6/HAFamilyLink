@@ -55,10 +55,7 @@ class SessionManager:
 		return self._session_data.get("cookies", [])
 
 	# Core Google authentication cookie names that are required for a valid
-	# session.  If ANY of these cookies is present and has explicitly expired
-	# the whole session is considered invalid.  Non-auth cookies (analytics,
-	# tracking, …) are intentionally excluded from this check so that a
-	# harmless stale cookie cannot invalidate an otherwise working session.
+	# session.  Kept for reference / future use.
 	_AUTH_COOKIE_NAMES: frozenset[str] = frozenset(
 		{
 			"SID",
@@ -76,10 +73,16 @@ class SessionManager:
 	def is_authenticated(self) -> bool:
 		"""Check if we have a valid session with cookies.
 
-		A session is considered valid as long as cookies are present and
-		none of the known Google authentication cookies have an expiry
-		timestamp (``expires`` or ``expirationDate``) that lies in the past.
-		Cookies that carry no explicit expiry are always treated as valid.
+		Intentionally optimistic: we only verify that the SAPISID (or its
+		Secure variant) cookie is present and has not yet expired.  We do NOT
+		reject the session if other short-lived auxiliary cookies have expired
+		– those are refreshed transparently by Google and do not affect the
+		ability to make API calls.
+
+		Real authentication failures (HTTP 401 from the API) are handled in
+		the coordinator via ``_async_refresh_auth()``, which triggers the HA
+		re-authentication flow.  Over-eager expiry checks here caused false
+		"session expired" notifications on every HA restart.
 		"""
 		if not self._session_data:
 			return False
@@ -88,20 +91,28 @@ class SessionManager:
 			return False
 
 		now = dt_util.utcnow().timestamp()
+		# Only check the primary SAPISID cookies – these are what we actually
+		# use to build the SAPISIDHASH Authorization header.
+		_SAPISID_NAMES = {"SAPISID", "__Secure-3PAPISID", "__Secure-1PAPISID", "APISID"}
+		sapisid_found = False
 		for cookie in cookies:
 			name = cookie.get("name", "")
-			if name not in self._AUTH_COOKIE_NAMES:
-				# Only check expiry for the critical auth cookies.
+			if name not in _SAPISID_NAMES:
 				continue
-			# Support both field names used by different browser extensions.
+			sapisid_found = True
 			expires = cookie.get("expires") or cookie.get("expirationDate")
 			if expires and isinstance(expires, (int, float)) and expires > 0:
 				if now > expires:
 					_LOGGER.debug(
-						"Auth cookie '%s' has expired (expires=%s, now=%s)",
-						name,
-						expires,
-						now,
+						"SAPISID cookie '%s' has expired (expires=%s, now=%s)",
+						name, expires, now,
 					)
 					return False
+			# Found a non-expired SAPISID – session is valid.
+			return True
+
+		# If no SAPISID cookie was found at all, still allow the attempt –
+		# the API call will fail with 401 if the session is truly gone.
+		if not sapisid_found:
+			_LOGGER.debug("No SAPISID cookie found; attempting API call anyway")
 		return True 
