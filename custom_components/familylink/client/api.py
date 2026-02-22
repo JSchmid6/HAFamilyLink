@@ -10,6 +10,7 @@ Reference implementation: https://github.com/tducret/familylink
 from __future__ import annotations
 
 import hashlib
+import http.cookies
 import json
 import logging
 import time
@@ -73,6 +74,8 @@ class FamilyLinkClient:
 		self._session: aiohttp.ClientSession | None = None
 		# Cache: child_id → {app_title_lower: package_name}
 		self._app_cache: dict[str, dict[str, str]] = {}
+		# Set-Cookie values captured from the last API cycle (name → value)
+		self._pending_cookie_updates: dict[str, str] = {}
 
 	# ------------------------------------------------------------------
 	# Auth
@@ -647,15 +650,75 @@ class FamilyLinkClient:
 	async def _get_session(self) -> aiohttp.ClientSession:
 		"""Return (or lazily create) the shared aiohttp session.
 
-		Cookies are NOT stored in the session CookieJar – they are injected as
-		an explicit ``Cookie`` header in every request via ``_auth_headers()``.
+		Cookies are injected as an explicit ``Cookie`` header via
+		``_auth_headers()``.  A ``TraceConfig`` hook is installed to intercept
+		``Set-Cookie`` response headers so that Google's automatic cookie
+		renewal is captured and persisted back to the config entry after each
+		coordinator update cycle.
 		"""
 		if self._session is None or self._session.closed:
+			trace_config = aiohttp.TraceConfig()
+
+			async def _on_response_headers(
+				_session: aiohttp.ClientSession,
+				_ctx: Any,
+				params: aiohttp.TraceResponseHeadersReceivedParams,
+			) -> None:
+				self._capture_set_cookies(params.headers)
+
+			trace_config.on_response_headers_received.append(_on_response_headers)
+
 			self._session = aiohttp.ClientSession(
 				headers={"User-Agent": _USER_AGENT},
 				timeout=aiohttp.ClientTimeout(total=30),
+				trace_configs=[trace_config],
 			)
 		return self._session
+
+	def _capture_set_cookies(self, headers: Any) -> None:
+		"""Extract name/value pairs from ``Set-Cookie`` response headers.
+
+		Parsed values are stored in ``_pending_cookie_updates`` and later merged
+		into the persisted cookie list by :meth:`get_updated_cookies`.
+		"""
+		for cookie_str in headers.getall("Set-Cookie", []):
+			sc: http.cookies.SimpleCookie = http.cookies.SimpleCookie()
+			try:
+				sc.load(cookie_str)
+			except http.cookies.CookieError:
+				continue
+			for name, morsel in sc.items():
+				self._pending_cookie_updates[name] = morsel.value
+				_LOGGER.debug("Cookie auto-renewed via Set-Cookie: %s", name)
+
+	def get_updated_cookies(self) -> list[dict[str, Any]]:
+		"""Return the stored cookie list merged with any Set-Cookie renewals.
+
+		Updated values are applied in-place to the in-memory session and the
+		``_pending_cookie_updates`` buffer is cleared.  Callers should persist
+		the returned list to the config entry data.
+		"""
+		try:
+			original = list(self.session_manager.get_cookies())
+		except Exception:
+			return []
+
+		if not self._pending_cookie_updates:
+			return original
+
+		updates = dict(self._pending_cookie_updates)
+		merged: list[dict[str, Any]] = [
+			{**c, "value": updates[c["name"]]} if c.get("name") in updates else c
+			for c in original
+		]
+
+		# Reflect the renewals in-memory so the next _auth_headers() call uses
+		# the fresh values without requiring a config entry reload.
+		if self.session_manager._session_data is not None:
+			self.session_manager._session_data["cookies"] = merged
+
+		self._pending_cookie_updates.clear()
+		return merged
 
 	async def _resolve_package(self, child_id: str, app_name: str) -> str:
 		"""Resolve an app title or package name to an Android package name.

@@ -68,37 +68,43 @@ async def async_setup_entry(
 				for ai in child_restrictions.get("limited", [])
 			}
 
-				# Use the first known device to group child-level entities (app limits,
-				# weekly plan) under the physical device card in HA.
-				child_devices = devices_map.get(cid, [])
-				first_dev_id = child_devices[0]["device_id"] if child_devices else ""
-				first_dev_name = child_devices[0].get("device_name", "") if child_devices else ""
+			# Use the first known device to group child-level entities (app limits,
+			# weekly plan) under the physical device card in HA.
+			child_devices = devices_map.get(cid, [])
+			first_dev_id = child_devices[0]["device_id"] if child_devices else ""
+			first_dev_name = child_devices[0].get("device_name", "") if child_devices else ""
 
-				for sup_app in child_restrictions.get("supervisable", []):
-					title = sup_app["title"]
-					current_limit = limited_lookup.get(title, 0) or 0
+			for sup_app in child_restrictions.get("supervisable", []):
+				title = sup_app["title"]
+				current_limit = limited_lookup.get(title, 0) or 0
+				entities.append(
+					AppTimeLimitNumber(
+						coordinator, child, title, current_limit,
+						first_dev_id, first_dev_name,
+					)
+				)
+			for dev in child_devices:
+				dev_name = dev.get("device_name", "")
+				entities.append(DeviceBonusTimeNumber(coordinator, child, dev["device_id"], dev_name))
+				# "Today's limit" control – shows & sets today's daily quota on the device
+				entities.append(TodayLimitNumber(coordinator, child, dev["device_id"], dev_name))
+
+			# Per-day limit entities (Mon–Sun) – hidden by default, available for advanced use
+			daily_limits_map: dict[str, Any] = coordinator.data.get("daily_limits", {})
+			for day_num in range(1, 8):
+				if day_num in daily_limits_map.get(cid, {}):
 					entities.append(
-						AppTimeLimitNumber(
-							coordinator, child, title, current_limit,
+						DeviceDailyLimitNumber(
+							coordinator, child, day_num,
 							first_dev_id, first_dev_name,
 						)
 					)
-				for dev in child_devices:
-					dev_name = dev.get("device_name", "")
-					entities.append(DeviceBonusTimeNumber(coordinator, child, dev["device_id"], dev_name))
-					# "Today's limit" control – shows & sets today's daily quota on the device
-					entities.append(TodayLimitNumber(coordinator, child, dev["device_id"], dev_name))
+	async_add_entities(entities)
 
-				# Per-day limit entities (Mon–Sun) – hidden by default, available for advanced use
-				daily_limits_map: dict[str, Any] = coordinator.data.get("daily_limits", {})
-				for day_num in range(1, 8):
-					if day_num in daily_limits_map.get(cid, {}):
-						entities.append(
-							DeviceDailyLimitNumber(
-								coordinator, child, day_num,
-								first_dev_id, first_dev_name,
-							)
-						)
+
+class AppTimeLimitNumber(CoordinatorEntity, NumberEntity):
+	"""Number entity controlling per-app daily time limit for a supervised child.
+
 	A value of 0 means the app is unrestricted. Setting 0 removes an existing limit.
 	Hidden by default to reduce clutter – enable individually in the entity registry.
 	"""

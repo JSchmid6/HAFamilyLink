@@ -156,6 +156,7 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 				len(devices),
 				len(daily_limits),
 			)
+			await self._async_persist_cookies()
 			return {
 				"children": children,
 				"usage": usage,
@@ -202,6 +203,30 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 			_LOGGER.error("Failed to setup Family Link client: %s", err)
 			self.client = None  # ensure next update retries setup
 			raise
+
+	async def _async_persist_cookies(self) -> None:
+		"""Persist any Set-Cookie renewals back to the config entry.
+
+		Called after every successful update cycle.  If Google returned new
+		``Set-Cookie`` headers during the cycle, the updated cookie values are
+		merged into the stored list and written back to the config entry so the
+		new values survive a Home Assistant restart.
+		"""
+		if self.client is None:
+			return
+		try:
+			updated = self.client.get_updated_cookies()
+		except Exception as err:  # pragma: no cover
+			_LOGGER.debug("Cookie persistence skipped: %s", err)
+			return
+		if not updated:
+			return
+		new_data = {**self.entry.data, "cookies": updated}
+		self.hass.config_entries.async_update_entry(self.entry, data=new_data)
+		_LOGGER.debug(
+			"Persisted %d cookie(s) back to config entry after auto-renewal",
+			len(updated),
+		)
 
 	async def _async_refresh_auth(self) -> None:
 		"""Trigger re-authentication when the session expires."""
