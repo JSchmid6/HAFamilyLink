@@ -659,14 +659,14 @@ class FamilyLinkClient:
 		if self._session is None or self._session.closed:
 			trace_config = aiohttp.TraceConfig()
 
-			async def _on_response_headers(
+			async def _on_request_end(
 				_session: aiohttp.ClientSession,
 				_ctx: Any,
-				params: aiohttp.TraceResponseHeadersReceivedParams,
+				params: aiohttp.TraceRequestEndParams,
 			) -> None:
-				self._capture_set_cookies(params.headers)
+				self._capture_set_cookies(params.response.headers)
 
-			trace_config.on_response_headers_received.append(_on_response_headers)
+			trace_config.on_request_end.append(_on_request_end)
 
 			self._session = aiohttp.ClientSession(
 				headers={"User-Agent": _USER_AGENT},
