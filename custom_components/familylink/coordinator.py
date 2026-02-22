@@ -148,12 +148,30 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 						daily_limits[cid] = daily_result
 			# If no children, all dicts stay empty
 
+			total_physical_devices = sum(len(v) for v in devices.values())
+			if total_physical_devices == 0 and children:
+				_LOGGER.warning(
+					"No physical devices found for any of %d children – "
+					"device cards will not appear in HA. "
+					"Enable debug logging (custom_components.familylink) and check for "
+					"'appliedTimeLimits raw entry' or 'appliedTimeLimits returned empty list'.",
+					len(children),
+				)
+			else:
+				for cid, devs in devices.items():
+					_LOGGER.info(
+						"Physical devices for child %s: %s",
+						cid,
+						[d.get("device_name", d.get("device_id", "?")) for d in devs],
+					)
 			_LOGGER.debug(
-				"Updated data: %d children, usage for %d, restrictions for %d, devices for %d, daily_limits for %d",
+				"Updated data: %d children, usage for %d, restrictions for %d, "
+				"devices for %d (%d physical), daily_limits for %d",
 				len(children),
 				len(usage),
 				len(restrictions),
 				len(devices),
+				total_physical_devices,
 				len(daily_limits),
 			)
 			await self._async_persist_cookies()

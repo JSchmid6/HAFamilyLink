@@ -129,13 +129,21 @@ def parse_applied_time_limits(raw: Any) -> list[dict[str, Any]]:
 	# Response is a JSPB positional array: [[metadata], [[entry, ...]]]
 	if not isinstance(raw, list) or len(raw) < 2:
 		_log.warning(
-			"appliedTimeLimits: unexpected response type %s – expected JSPB list",
+			"appliedTimeLimits: unexpected response format – got type=%s, value=%r "
+			"(expected JSPB list with ≥2 elements). Physical devices will not appear in HA.",
 			type(raw).__name__,
+			raw,
 		)
 		return []
 
 	entries_wrapper = raw[1]
 	if not isinstance(entries_wrapper, list):
+		_log.warning(
+			"appliedTimeLimits: raw[1] is not a list – got type=%s, value=%r. "
+			"Physical devices will not appear in HA.",
+			type(entries_wrapper).__name__,
+			entries_wrapper,
+		)
 		return []
 
 	devices: list[dict[str, Any]] = []
@@ -150,6 +158,13 @@ def parse_applied_time_limits(raw: Any) -> list[dict[str, Any]]:
 		# Index 25 confirmed from HAR capture of familylink.google.com
 		device_id: str = entry[25] if len(entry) > 25 and isinstance(entry[25], str) else ""
 		if not device_id:
+			_log.warning(
+				"appliedTimeLimits entry skipped: no device_id at index 25 "
+				"(entry len=%d, index-25 value=%r). Full entry: %s",
+				len(entry),
+				entry[25] if len(entry) > 25 else "<missing>",
+				entry,
+			)
 			continue
 
 		# ── is_locked ─────────────────────────────────────────────────────────
@@ -199,4 +214,14 @@ def parse_applied_time_limits(raw: Any) -> list[dict[str, Any]]:
 			}
 		)
 
+	if devices:
+		_log.debug("appliedTimeLimits: parsed %d device(s): %s", len(devices), [d["device_id"] for d in devices])
+	else:
+		_log.warning(
+			"appliedTimeLimits: parser produced 0 devices from %d entries. "
+			"The JSPB field indices (device_id=25) may have changed. "
+			"First raw entry for inspection: %s",
+			len(entries_wrapper),
+			entries_wrapper[0] if entries_wrapper else "<empty>",
+		)
 	return devices
