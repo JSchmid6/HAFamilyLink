@@ -469,10 +469,36 @@ script:
 
 ## Nächste Schritte
 
-1. **Phase 1 starten:** `input_number`-Entitäten in HA anlegen (Helpers UI), `max` per Kind einstellbar setzen
-2. **Script `buche_tabletzeit` in HA deployen** und in DevTools testen (Vor- und Rückwärtsbuchung)
-3. **Entity-IDs der FamilyLink-Geräte ermitteln** (Diagnosescript oder HA DevTools) → in Script-Templates eintragen
-4. **Flutter-Projekt anlegen** (`tablet_time_app/` im Repo oder separates Repo?)
+1. **Separates GitHub-Repo anlegen** – `JSchmid6/HATabletTime`
+   - README: beschreibt Zweck + Voraussetzung (HAFamilyLink-Integration)
+   - Link zurück zu `JSchmid6/HAFamilyLink`
+   - `README.md` in diesem Repo → Abschnitt "Related Projects" hinzufügen
+2. **Phase 1:** `input_number`-Entitäten in HA anlegen (Helpers UI)
+3. **Script `script.buche_tabletzeit`** in HA deployen und in DevTools testen
+4. **Entity-IDs** der FamilyLink-Geräte ermitteln (Diagnosescript), damit Scout-Logik im Setup-Wizard stimmt
+5. **Flutter-Projekt** im neuen Repo anlegen und Setup-Wizard implementieren
+
+---
+
+## Repo-Struktur (HATabletTime)
+
+```
+HATabletTime/
+  README.md            ← Anforderungen, Setup-Anleitung, Link zu HAFamilyLink
+  lib/
+    main.dart
+    screens/
+      setup_wizard.dart  ← Einrichtungsassistent (Schritt 1–4)
+      home_screen.dart   ← Guthaben + Buchungsbuttons
+    services/
+      ha_client.dart     ← REST + WebSocket API
+      secure_storage.dart
+    models/
+      account_config.dart
+  android/
+    ...                  ← Android-spezifische Konfiguration, Kiosk-Modus
+  CHANGELOG.md
+```
 
 ---
 

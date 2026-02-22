@@ -1,7 +1,7 @@
 # Google Family Link � Home Assistant Integration
 
 ![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)
-![Version](https://img.shields.io/badge/version-0.4.0-blue)
+![Version](https://img.shields.io/badge/version-0.8.14-blue)
 ![HA min version](https://img.shields.io/badge/Home%20Assistant-2023.10%2B-brightgreen)
 
 Control Google Family Link parental controls directly from Home Assistant �
@@ -197,6 +197,20 @@ The authoritative version is `custom_components/familylink/manifest.json`.
 | **0.4.0** *(current)* | `sensor` for daily screen time, `number` for per-app time limits, options flow |
 | **0.5.0** | Multiple accounts / families |
 | **1.0.0** | HACS default repository submission |
+
+---
+
+## Related Projects
+
+### [HATabletTime](https://github.com/JSchmid6/HATabletTime) *(coming soon)*
+
+A companion Android app (Flutter) that gives each child a **screen-time savings account** managed by Home Assistant.
+
+- Children can book tablet time themselves directly from their device
+- A bidirectional booking system: buy time from the account, return unused time
+- Parents top up the balance as a reward for reading, helping, learning, etc.
+- One-time self-configuring setup wizard – just enter your HA URL and admin credentials, the app handles the rest
+- Requires this integration (HAFamilyLink) to apply the limits via Google Family Link
 
 ---
 
