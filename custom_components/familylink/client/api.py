@@ -521,8 +521,8 @@ class FamilyLinkClient:
 			_LOGGER.error("Failed to fetch time limits [child=%s]: HTTP %s", child_id, err.status)
 			raise NetworkError(f"HTTP {err.status} while fetching time limits") from err
 		except Exception as err:
-			_LOGGER.error("Failed to fetch time limits [child=%s]: %s", child_id, err)
-			raise NetworkError(f"Failed to fetch time limits: {err}") from err
+			_LOGGER.error("Failed to fetch time limits [child=%s]: %r", child_id, err)
+			raise NetworkError(f"Failed to fetch time limits: {err!r}") from err
 
 		try:
 			data = json.loads(raw)

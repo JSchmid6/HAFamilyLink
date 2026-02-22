@@ -7,6 +7,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.helpers import entity_registry as er
 
 from .const import DOMAIN, LOGGER_NAME
 from .coordinator import FamilyLinkDataUpdateCoordinator
@@ -32,6 +33,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 		# Store coordinator in hass data
 		hass.data.setdefault(DOMAIN, {})
 		hass.data[DOMAIN][entry.entry_id] = coordinator
+
+		# Remove duplicate entity registry entries left by earlier reload loops.
+		_async_cleanup_duplicate_entities(hass, entry)
 
 		# Forward setup to platforms
 		await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -62,6 +66,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 	except Exception as err:
 		_LOGGER.exception("Unexpected error setting up Family Link: %s", err)
 		raise ConfigEntryNotReady from err
+
+
+def _async_cleanup_duplicate_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
+	"""Remove entity registry entries whose unique_id appears more than once.
+
+	Earlier versions (v0.8.7/v0.8.8) had a reload loop that caused the same
+	entities to be registered multiple times.  HA keeps those stale entries
+	persisted in the entity registry and then rejects the fresh ones with
+	"ID already exists".  This cleanup runs once at setup and removes duplicate
+	entries so the current setup can register cleanly.
+	"""
+	registry = er.async_get(hass)
+	seen: set[str] = set()
+	for entity_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
+		uid = entity_entry.unique_id
+		if uid in seen:
+			_LOGGER.warning(
+				"Removing duplicate entity registry entry %s (unique_id=%s)",
+				entity_entry.entity_id, uid,
+			)
+			registry.async_remove(entity_entry.entity_id)
+		else:
+			seen.add(uid)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

@@ -99,7 +99,18 @@ async def async_setup_entry(
 							first_dev_id, first_dev_name,
 						)
 					)
-	async_add_entities(entities)
+	# Deduplicate by unique_id – guards against stale entity registry entries
+	# created by earlier reload loops (v0.8.7/v0.8.8).
+	seen_ids: set[str] = set()
+	uniqueentities: list[NumberEntity] = []
+	for ent in entities:
+		uid = getattr(ent, "_attr_unique_id", None)
+		if uid and uid in seen_ids:
+			continue
+		if uid:
+			seen_ids.add(uid)
+		uniqueentities.append(ent)
+	async_add_entities(uniqueentities)
 
 
 class AppTimeLimitNumber(CoordinatorEntity, NumberEntity):
