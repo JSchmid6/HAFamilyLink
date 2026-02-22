@@ -13,6 +13,7 @@ representing the persistent daily screen time quota (timeLimit endpoint).
 """
 from __future__ import annotations
 
+import datetime
 import logging
 from typing import Any
 
@@ -68,20 +69,23 @@ async def async_setup_entry(
 				entities.append(AppTimeLimitNumber(coordinator, child, title, current_limit))
 			for dev in devices_map.get(cid, []):
 				entities.append(DeviceBonusTimeNumber(coordinator, child, dev["device_id"]))
+				# "Today's limit" control – shows & sets today's daily quota on the device
+				entities.append(TodayLimitNumber(coordinator, child, dev["device_id"]))
 
-			# Daily limit entities (one per day per child)
+			# Per-day limit entities (Mon–Sun) – hidden by default, available for advanced use
 			daily_limits_map: dict[str, Any] = coordinator.data.get("daily_limits", {})
 			for day_num in range(1, 8):
 				if day_num in daily_limits_map.get(cid, {}):
 					entities.append(DeviceDailyLimitNumber(coordinator, child, day_num))
 
-	async_add_entities(entities)
+	async_add_entities(entities, update_before_add=True)
 
 
 class AppTimeLimitNumber(CoordinatorEntity, NumberEntity):
 	"""Adjustable daily time limit (minutes) for one app on a child device.
 
 	A value of 0 means the app is unrestricted. Setting 0 removes an existing limit.
+	Hidden by default to reduce clutter – enable individually in the entity registry.
 	"""
 
 	_attr_mode = NumberMode.BOX
@@ -90,6 +94,7 @@ class AppTimeLimitNumber(CoordinatorEntity, NumberEntity):
 	_attr_native_step = 15.0
 	_attr_native_unit_of_measurement = UnitOfTime.MINUTES
 	_attr_icon = "mdi:timer-edit-outline"
+	_attr_entity_registry_enabled_default = False
 
 	def __init__(
 		self,
@@ -199,11 +204,13 @@ class DeviceBonusTimeNumber(CoordinatorEntity, NumberEntity):
 		await self.coordinator.async_request_refresh()
 
 
-class DeviceDailyLimitNumber(CoordinatorEntity, NumberEntity):
-	"""Persistent daily screen time quota for one day of the week.
+class TodayLimitNumber(CoordinatorEntity, NumberEntity):
+	"""Daily screen time limit for today – shown on the physical device, set per child.
 
-	Reads from and writes to the ``timeLimit`` endpoint
-	(PUT /people/{child_id}/timeLimit:update).  One entity per child per day.
+	Reads ``today_limit_minutes`` from the ``appliedTimeLimits`` response (device-level).
+	Writes via ``timeLimit:update`` for today's weekday (child-level API).
+
+	This is the primary control for day-to-day limit adjustments.
 	"""
 
 	_attr_mode = NumberMode.BOX
@@ -212,6 +219,83 @@ class DeviceDailyLimitNumber(CoordinatorEntity, NumberEntity):
 	_attr_native_step = 5.0
 	_attr_native_unit_of_measurement = UnitOfTime.MINUTES
 	_attr_icon = "mdi:timer-lock-outline"
+
+	def __init__(
+		self,
+		coordinator: FamilyLinkDataUpdateCoordinator,
+		child: dict[str, Any],
+		device_id: str,
+	) -> None:
+		"""Initialize the today-limit number entity."""
+		super().__init__(coordinator)
+		self._child_id: str = child["child_id"]
+		self._child_name: str = child.get("name", self._child_id)
+		self._device_id: str = device_id
+		suffix = device_id[-6:]
+		self._attr_name = f"{self._child_name} ({suffix}) Today's Limit"
+		self._attr_unique_id = f"{DOMAIN}_{self._child_id}_{device_id}_today_limit"
+
+	@property
+	def device_info(self) -> DeviceInfo:
+		"""Group entity under the physical device – same as Screen Time sensor."""
+		suffix = self._device_id[-6:]
+		return DeviceInfo(
+			identifiers={(DOMAIN, self._device_id)},
+			name=f"{self._child_name} ({suffix})",
+			manufacturer="Google",
+			model="Android Device",
+			entry_type=DeviceEntryType.SERVICE,
+			via_device=(DOMAIN, self._child_id),
+			configuration_url=FAMILYLINK_BASE_URL,
+		)
+
+	@property
+	def native_value(self) -> float | None:
+		"""Return today's effective limit from appliedTimeLimits (device data)."""
+		if not self.coordinator.data:
+			return None
+		device_list: list[dict[str, Any]] = (
+			self.coordinator.data.get("devices", {}).get(self._child_id, [])
+		)
+		for dev in device_list:
+			if dev["device_id"] == self._device_id:
+				limit = dev.get("today_limit_minutes")
+				return float(limit) if limit is not None else None
+		return None
+
+	@property
+	def extra_state_attributes(self) -> dict[str, Any]:
+		"""Show which weekday is currently active."""
+		today = datetime.date.today().isoweekday()  # 1=Mon … 7=Sun
+		return {
+			"weekday": _DAY_NAMES.get(today, str(today)),
+			"child_id": self._child_id,
+		}
+
+	async def async_set_native_value(self, value: float) -> None:
+		"""Set today's limit by updating the current weekday entry in the schedule."""
+		today = datetime.date.today().isoweekday()  # 1=Mon … 7=Sun
+		await self.coordinator.async_set_daily_limit(
+			self._child_id, today, int(value)
+		)
+		await self.coordinator.async_request_refresh()
+
+
+class DeviceDailyLimitNumber(CoordinatorEntity, NumberEntity):
+	"""Persistent daily screen time quota for one specific day of the week.
+
+	Reads from and writes to the ``timeLimit`` endpoint.
+	Hidden by default – use TodayLimitNumber for everyday adjustments.
+	Enable individual days in the entity registry for advanced scheduling.
+	"""
+
+	_attr_mode = NumberMode.BOX
+	_attr_native_min_value = 0.0
+	_attr_native_max_value = 720.0
+	_attr_native_step = 5.0
+	_attr_native_unit_of_measurement = UnitOfTime.MINUTES
+	_attr_icon = "mdi:timer-lock-outline"
+	_attr_entity_registry_enabled_default = False
 
 	def __init__(
 		self,
