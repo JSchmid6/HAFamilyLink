@@ -163,20 +163,32 @@ Schritt 4: App richtet automatisch ein:
 │        ⏱  45 Minuten        │
 │           Guthaben          │
 │                             │
+│  ── Zeit buchen ──────────  │
 │  ┌────────┐  ┌────────┐     │
-│  │ 15 min │  │ 30 min │     │
+│  │ +15min │  │ +30min │     │
 │  └────────┘  └────────┘     │
 │  ┌────────┐  ┌────────┐     │
-│  │ 45 min │  │ 60 min │     │
+│  │ +45min │  │ +60min │     │
+│  └────────┘  └────────┘     │
+│  ┌──────────────────────┐   │
+│  │  Betrag: [___] min   │   │  ← freie Eingabe
+│  └──────────────────────┘   │
+│                             │
+│  ── Zeit zurückgeben ─────  │
+│  ┌────────┐  ┌────────┐     │
+│  │ −15min │  │ −30min │     │  ← grau wenn Limit − betrag < verbraucht
 │  └────────┘  └────────┘     │
 │                             │
 │  Heute gebucht:   30 min    │
 │  Aktuelles Limit: 90 min    │
+│  Heute verbraucht: 25 min   │
 └─────────────────────────────┘
 ```
 
-Kein dauerhafter Login – die App startet direkt im Konto-Bildschirm.  
-Buchungsbuttons sind ausgegraut wenn Guthaben < Betrag.  
+Buchungsbuttons sind ausgegraut wenn:
+- **+**: Guthaben < Betrag oder Limit + Betrag > 720 min
+- **−**: Limit − Betrag < heute_verbraucht oder Guthaben + Betrag > max_guthaben
+
 Nach Buchung: kurze Bestätigungsanimation + Guthaben aktualisiert.
 
 ---
@@ -298,18 +310,34 @@ Kind                    Tablet-App              Home Assistant
 
 ---
 
-## Offene Fragen
+## Entscheidungen (geklärte Fragen)
 
-| # | Frage | Optionen |
+| # | Frage | Entscheidung |
 |---|---|---|
-| 1 | Wie verhalten sich bereits laufende Family-Link-Limits? Addiert die Buchung auf das bestehende Tageslimit oder ersetzt es? | **Addieren** erscheint natürlicher – Kind hat bereits 60 min, bucht 30 min → neues Limit = 90 min |
-| 2 | Was passiert wenn das Kind schon mehr Zeit verbraucht hat als das neue Limit? | Limit auf `aktuell_verbraucht + betrag` setzen (nie kleiner als verbraucht) |
-| 3 | Kann ein Kind mehrmals am Tag buchen? | Ja, solange Guthaben reicht. Max. Tageslimit = 720 min (Family Link Maximum) |
-| 4 | Soll nicht verbrauchtes Tageslimit ans Guthaben zurückfließen? | Kompliziert (Tracking nötig); erstmal: **Nein**, Guthaben wird beim Buchen abgezogen, Ende |
-| 5 | Wie wird die App vor unbeabsichtigter Nutzung durch andere geschützt? | Gerät ist dem Kind eindeutig zugeordnet; Token im Config nur für dieses Kind |
-| 6 | Soll es ein Maximal-Guthaben geben (Deckel)? | Empfehlung: Ja, 600 min (10 h) als Obergrenze |
-| 7 | Welche Buchungsschritte sind sinnvoll? | 15, 30, 45, 60 min; ggf. frei eingebbar |
-| 8 | Guthaben übertragbar zwischen Kindern? | Nein, erstmal nicht |
+| 1 | Addieren oder Ersetzen? | ✅ **Addieren** – Buchung erhöht das aktuelle Tageslimit um den Betrag. Rückwärtsbuchung erlaubt (Limit senken, Guthaben zurückbuchen). |
+| 2 | Was wenn Kind mehr verbraucht hat als neues Limit? | ✅ Limit = max(aktuell_verbraucht, aktuelles_limit - betrag) – niemals unter dem bereits verbrauchten Wert |
+| 3 | Mehrfach buchen am selben Tag? | ✅ **Ja, beliebig oft** – solange Guthaben > 0 und Tageslimit < 720 min |
+| 4 | Rückwärtsbuchung (Zeit zurückgeben)? | ✅ **Ja** – Kind kann gebuchte Zeit zurückgeben: Limit sinkt, Guthaben steigt wieder. Bedingung: Limit − Betrag ≥ aktuell_verbraucht |
+| 5 | App-Schutz | ✅ Gerät = Kind; Token in Android SecureStorage (EncryptedSharedPreferences), kein Login-Screen nötig |
+| 6 | Maximal-Guthaben | ✅ **Einstellbar** – pro Kind konfigurierbar (Standard: 600 min). Als `input_number`-Parameter `max`. |
+| 7 | Buchungsbeträge | ✅ **15 / 30 / 45 / 60 min** als Schnellbuttons + freie Eingabe |
+| 8 | Guthaben übertragbar? | ✅ Nein |
+
+### Buchungslogik im Detail
+
+```
+Vorwärtsbuchung (Zeit kaufen):
+  Vorbedingung:  Guthaben >= betrag
+                 Aktuelles Tageslimit + betrag <= 720
+  Aktion:        Tageslimit += betrag
+                 Guthaben   -= betrag
+
+Rückwärtsbuchung (Zeit zurückgeben):
+  Vorbedingung:  Guthaben + betrag <= max_guthaben (Deckel)
+                 Aktuelles Tageslimit - betrag >= heute_verbraucht
+  Aktion:        Tageslimit -= betrag
+                 Guthaben   += betrag
+```
 
 ---
 
@@ -359,48 +387,92 @@ script:
       child_id:      # HA child_id aus FamilyLink
         selector:
           text:
-      minuten:
+      minuten:       # positiv = kaufen, negativ = zurückgeben
         selector:
           number:
-            min: 15
+            min: -120
             max: 120
             step: 15
     sequence:
-      # 1. Guthaben prüfen
-      - condition: template
-        value_template: >
-          {{ states('input_number.zeitkonto_' ~ kind) | int >= minuten | int }}
-      # 2. Aktuelles Limit lesen + erhöhen
-      - service: number.set_value
-        target:
-          entity_id: "number.familylink_{{ child_id }}_{{ device_id }}_today_limit"
-        data:
-          value: >
-            {{ (states('number.familylink_' ~ child_id ~ '_' ~ device_id ~ '_today_limit') | int)
-               + (minuten | int) }}
-      # 3. Guthaben abbuchen
-      - service: input_number.set_value
-        target:
-          entity_id: "input_number.zeitkonto_{{ kind }}"
-        data:
-          value: >
-            {{ (states('input_number.zeitkonto_' ~ kind) | int) - (minuten | int) }}
-      # 4. Log-Eintrag
+      # ── Vorwärtsbuchung (Zeit kaufen) ──────────────────────────────────
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ minuten | int > 0 }}"
+            sequence:
+              # Guthaben ausreichend?
+              - condition: template
+                value_template: >
+                  {{ states('input_number.zeitkonto_' ~ kind) | int >= minuten | int }}
+              # Tageslimit würde 720 nicht überschreiten?
+              - condition: template
+                value_template: >
+                  {{ (states('number.familylink_' ~ child_id ~ '_' ~ device_id ~ '_today_limit') | int)
+                     + (minuten | int) <= 720 }}
+              - service: number.set_value
+                target:
+                  entity_id: "number.familylink_{{ child_id }}_{{ device_id }}_today_limit"
+                data:
+                  value: >
+                    {{ (states('number.familylink_' ~ child_id ~ '_' ~ device_id ~ '_today_limit') | int)
+                       + (minuten | int) }}
+              - service: input_number.set_value
+                target:
+                  entity_id: "input_number.zeitkonto_{{ kind }}"
+                data:
+                  value: >
+                    {{ (states('input_number.zeitkonto_' ~ kind) | int) - (minuten | int) }}
+
+          # ── Rückwärtsbuchung (Zeit zurückgeben) ──────────────────────────
+          - conditions:
+              - condition: template
+                value_template: "{{ minuten | int < 0 }}"
+            sequence:
+              # Guthaben würde max nicht überschreiten?
+              - condition: template
+                value_template: >
+                  {{ (states('input_number.zeitkonto_' ~ kind) | int) - (minuten | int)
+                     <= state_attr('input_number.zeitkonto_' ~ kind, 'max') | int }}
+              # Neues Limit wäre >= heute verbraucht?
+              - condition: template
+                value_template: >
+                  {% set current_limit = states('number.familylink_' ~ child_id ~ '_' ~ device_id ~ '_today_limit') | int %}
+                  {% set used = state_attr('sensor.familylink_' ~ child_id ~ '_' ~ device_id ~ '_screen_time', 'usage_minutes_today') | default(0) | int %}
+                  {{ current_limit + (minuten | int) >= used }}
+              - service: number.set_value
+                target:
+                  entity_id: "number.familylink_{{ child_id }}_{{ device_id }}_today_limit"
+                data:
+                  value: >
+                    {{ (states('number.familylink_' ~ child_id ~ '_' ~ device_id ~ '_today_limit') | int)
+                       + (minuten | int) }}
+              - service: input_number.set_value
+                target:
+                  entity_id: "input_number.zeitkonto_{{ kind }}"
+                data:
+                  value: >
+                    {{ (states('input_number.zeitkonto_' ~ kind) | int) - (minuten | int) }}
+
+      # Log-Eintrag (beide Richtungen)
       - service: logbook.log
         data:
           name: "Zeitkonto {{ kind }}"
-          message: "{{ minuten }} Minuten gebucht. Verbleibend: {{ (states('input_number.zeitkonto_' ~ kind) | int) }} min"
+          message: >
+            {% if minuten | int > 0 %}
+              {{ minuten }} Minuten gebucht. Guthaben jetzt: {{ states('input_number.zeitkonto_' ~ kind) | int }} min
+            {% else %}
+              {{ (minuten | int) | abs }} Minuten zurückgegeben. Guthaben jetzt: {{ states('input_number.zeitkonto_' ~ kind) | int }} min
+            {% endif %}
 ```
 
 ---
 
 ## Nächste Schritte
 
-1. **Offene Fragen 1–3 klären** (Buchungslogik festlegen)
-2. **Phase 1 starten:** `input_number`-Entitäten anlegen und Script in HA testen
-3. **Flutter-Projekt anlegen** (`tablet_time_app/` im Repo oder separates Repo?)
-4. **Entity-IDs der FamilyLink-Geräte ermitteln** (via Diagnosescript oder HA DevTools), damit die Script-Templates und der Setup-Wizard die richtigen IDs finden
-5. **HA WebSocket API prüfen:** Kann ein Admin-Token wirklich neue User + Tokens per API anlegen? (Test in DevTools: `ws://ha:8123/api/websocket`, Message-Typ `auth/create_user`)
+1. **Phase 1 starten:** `input_number`-Entitäten in HA anlegen (Helpers UI), `max` per Kind einstellbar setzen
+2. **Script `buche_tabletzeit` in HA deployen** und in DevTools testen (Vor- und Rückwärtsbuchung)
+3. **Entity-IDs der FamilyLink-Geräte ermitteln** (Diagnosescript oder HA DevTools) → in Script-Templates eintragen
+4. **Flutter-Projekt anlegen** (`tablet_time_app/` im Repo oder separates Repo?)
 
 ---
 
