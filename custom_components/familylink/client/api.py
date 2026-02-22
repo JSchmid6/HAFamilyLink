@@ -284,12 +284,20 @@ class FamilyLinkClient:
 	) -> dict[str, str]:
 		"""Return a mapping of device_id → human-readable device name.
 
-		Calls ``GET /people/{child_id}/devices`` which returns a JSPB array.
-		Confirmed field indices (from HAR capture):
+		Handles both the new JSON-dict format (current API, 2026) and the legacy
+		JSPB positional-array format.
 
-		  * ``entry[0]``   – opaque device ID
-		  * ``entry[10]``  – device model name (e.g. ``SM-X200``)
-		  * ``entry[8][2]``– same name, in the nested device-info sub-array
+		**New format:**
+
+		.. code-block:: json
+
+			{"devices": [{"deviceId": "...", "displayInfo": {"friendlyName": "SM-X200"}}]}
+
+		**Legacy JSPB format:**
+
+		.. code-block:: python
+
+			[[metadata], [[entry0], [entry1], ...]]  # entry[0]=id, entry[10]=name
 		"""
 		session = await self._get_session()
 		url = f"{KIDSMANAGEMENT_BASE_URL}/people/{child_id}/devices"
@@ -311,26 +319,45 @@ class FamilyLinkClient:
 			_LOGGER.warning("Failed to fetch devices [child=%s]: %s", child_id, err)
 			return {}
 
-		# JSPB: [[metadata], [[entry0], [entry1], ...]]
+		result: dict[str, str] = {}
+
+		# ── New JSON-dict format (current API) ────────────────────────────────
+		if isinstance(data, dict):
+			for device in data.get("devices", []):
+				if not isinstance(device, dict):
+					continue
+				device_id = device.get("deviceId", "")
+				if not device_id:
+					continue
+				display = device.get("displayInfo", {})
+				name = (
+					display.get("friendlyName")
+					or display.get("model")
+					or display.get("defaultFriendlyName")
+					or f"…{device_id[-6:]}"
+				)
+				result[device_id] = name
+				_LOGGER.debug("Device name resolved: %s → %s", device_id, name)
+			return result
+
+		# ── Legacy JSPB positional-array format ───────────────────────────────
 		if not isinstance(data, list) or len(data) < 2 or not isinstance(data[1], list):
 			_LOGGER.debug("Devices response unexpected format for child %s: %s", child_id, type(data))
 			return {}
 
-		result: dict[str, str] = {}
 		for entry in data[1]:
 			if not isinstance(entry, list) or len(entry) < 11:
 				continue
 			device_id = entry[0] if isinstance(entry[0], str) else ""
 			if not device_id:
 				continue
-			# Index 10 is the plain device name string
-			name: str = ""
+			name = ""
 			if isinstance(entry[10], str):
 				name = entry[10]
 			elif isinstance(entry[8], list) and len(entry[8]) > 2 and isinstance(entry[8][2], str):
 				name = entry[8][2]
 			result[device_id] = name or f"…{device_id[-6:]}"
-			_LOGGER.debug("Device name resolved: %s → %s", device_id, result[device_id])
+			_LOGGER.debug("Device name resolved (JSPB): %s → %s", device_id, result[device_id])
 		return result
 
 	# ------------------------------------------------------------------

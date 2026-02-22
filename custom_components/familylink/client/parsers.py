@@ -99,25 +99,37 @@ def parse_restrictions(raw: dict[str, Any]) -> dict[str, Any]:
 def parse_applied_time_limits(raw: Any) -> list[dict[str, Any]]:
 	"""Parse the appliedTimeLimits response into a flat list of device dicts.
 
-	The API returns **JSPB array format** (``application/json+protobuf``), not a
-	plain JSON dict.  The outer structure is::
+	The API has returned two different formats over time:
 
-		[[metadata], [[device_entry, ...]]]
+	**New format (JSON dict – current as of 2026):**
 
-	where each ``device_entry`` is a positional array.  Confirmed field indices
-	(from HAR capture of familylink.google.com):
+	.. code-block:: json
 
-	  * ``[6]``  – today's usage quota in minutes (int)
-	  * ``[19]`` – screen time used today in milliseconds (string)
-	  * ``[25]`` – opaque device ID string
-	  * ``[28]`` – is_locked flag (1 = locked, 0 = unlocked)
-	  * ``[30]`` – active overrides list (each element: ``[device_ref, action, ...]``)
+		{
+		  "appliedTimeLimits": [
+		    {
+		      "deviceId": "aannnpp...",
+		      "isLocked": false,
+		      "activePolicy": "noActivePolicy",
+		      "currentUsageUsedMillis": "3639340",
+		      "currentUsageLimitEntry": {"usageQuotaMins": 95, ...}
+		    }
+		  ]
+		}
+
+	**Old format (JSPB positional array – pre-2026):**
+
+	.. code-block:: python
+
+		[[metadata], [[entry0, entry1, ...]]]
+
+	where each entry is a positional array with device_id at index 25.
 
 	Returns:
 		List of dicts with keys:
 		  - ``device_id``            – opaque Google device ID string
 		  - ``is_locked``            – True when device is currently locked
-		  - ``active_policy``        – "override" | "timeLimitOn" | "noActivePolicy"
+		  - ``active_policy``        – "override" | "usageLimit" | "noActivePolicy" | ...
 		  - ``override_action``      – integer action code of active override, or None
 		  - ``usage_minutes_today``  – screen time used today (minutes, rounded down)
 		  - ``today_limit_minutes``  – daily limit in minutes for today, or None
@@ -125,103 +137,165 @@ def parse_applied_time_limits(raw: Any) -> list[dict[str, Any]]:
 	import logging as _logging
 	_log = _logging.getLogger("custom_components.familylink")
 
-	# ── Detect format ─────────────────────────────────────────────────────────
-	# Response is a JSPB positional array: [[metadata], [[entry, ...]]]
-	if not isinstance(raw, list) or len(raw) < 2:
-		_log.warning(
-			"appliedTimeLimits: unexpected response format – got type=%s, value=%r "
-			"(expected JSPB list with ≥2 elements). Physical devices will not appear in HA.",
-			type(raw).__name__,
-			raw,
-		)
-		return []
-
-	entries_wrapper = raw[1]
-	if not isinstance(entries_wrapper, list):
-		_log.warning(
-			"appliedTimeLimits: raw[1] is not a list – got type=%s, value=%r. "
-			"Physical devices will not appear in HA.",
-			type(entries_wrapper).__name__,
-			entries_wrapper,
-		)
-		return []
-
-	devices: list[dict[str, Any]] = []
-
-	for entry in entries_wrapper:
-		if not isinstance(entry, list):
-			continue
-
-		_log.debug("appliedTimeLimits raw entry (len=%d): %s", len(entry), entry)
-
-		# ── device_id ─────────────────────────────────────────────────────────
-		# Index 25 confirmed from HAR capture of familylink.google.com
-		device_id: str = entry[25] if len(entry) > 25 and isinstance(entry[25], str) else ""
-		if not device_id:
+	# ── New JSON-dict format (current API) ────────────────────────────────────
+	if isinstance(raw, dict):
+		entries = raw.get("appliedTimeLimits", [])
+		if not isinstance(entries, list):
 			_log.warning(
-				"appliedTimeLimits entry skipped: no device_id at index 25 "
-				"(entry len=%d, index-25 value=%r). Full entry: %s",
-				len(entry),
-				entry[25] if len(entry) > 25 else "<missing>",
-				entry,
+				"appliedTimeLimits dict response has no 'appliedTimeLimits' list – "
+				"got type=%s. Physical devices will not appear in HA.",
+				type(entries).__name__,
 			)
-			continue
+			return []
 
-		# ── is_locked ─────────────────────────────────────────────────────────
-		is_locked: bool = bool(entry[28]) if len(entry) > 28 else False
+		devices: list[dict[str, Any]] = []
+		for entry in entries:
+			if not isinstance(entry, dict):
+				continue
 
-		# ── active_policy / override_action ───────────────────────────────────
-		override_action: int | None = None
-		overrides = entry[30] if len(entry) > 30 and isinstance(entry[30], list) else []
-		if overrides:
-			first = overrides[0]
-			if isinstance(first, list) and len(first) > 1:
+			device_id: str = entry.get("deviceId", "")
+			if not device_id:
+				_log.warning("appliedTimeLimits entry missing 'deviceId': %s", entry)
+				continue
+
+			is_locked: bool = bool(entry.get("isLocked", False))
+			active_policy: str = entry.get("activePolicy", "noActivePolicy")
+
+			# Override action not directly exposed in new format; infer from policy
+			override_action: int | None = None
+
+			# Usage today: "currentUsageUsedMillis" is a millisecond string
+			usage_minutes = 0
+			raw_used = entry.get("currentUsageUsedMillis")
+			if raw_used is not None:
 				try:
-					override_action = int(first[1])
+					usage_minutes = int(raw_used) // 60_000
 				except (ValueError, TypeError):
 					pass
 
-		if override_action is not None:
-			active_policy = "override"
-		elif is_locked:
-			active_policy = "timeLimitOn"
+			# Today's limit: usageQuotaMins inside currentUsageLimitEntry
+			today_limit: int | None = None
+			limit_entry = entry.get("currentUsageLimitEntry", {})
+			if isinstance(limit_entry, dict):
+				quota = limit_entry.get("usageQuotaMins")
+				if isinstance(quota, int):
+					today_limit = quota
+
+			devices.append(
+				{
+					"device_id": device_id,
+					"is_locked": is_locked,
+					"active_policy": active_policy,
+					"override_action": override_action,
+					"usage_minutes_today": usage_minutes,
+					"today_limit_minutes": today_limit,
+				}
+			)
+
+		if devices:
+			_log.debug(
+				"appliedTimeLimits (JSON dict): parsed %d device(s): %s",
+				len(devices),
+				[d["device_id"] for d in devices],
+			)
 		else:
-			active_policy = "noActivePolicy"
+			_log.warning(
+				"appliedTimeLimits (JSON dict): 0 devices parsed from %d entries. "
+				"Raw response: %s",
+				len(entries),
+				entries,
+			)
+		return devices
 
-		# ── usage_minutes_today ────────────────────────────────────────────────
-		# Index 19: currentUsageUsedMillis as a string (e.g. "5700000")
-		usage_minutes = 0
-		if len(entry) > 19 and entry[19] is not None:
-			try:
-				usage_minutes = int(entry[19]) // 60_000
-			except (ValueError, TypeError):
-				pass
+	# ── Legacy JSPB positional-array format (pre-2026) ────────────────────────
+	if isinstance(raw, list) and len(raw) >= 2:
+		_log.debug("appliedTimeLimits: received legacy JSPB list format – parsing positionally")
+		entries_wrapper = raw[1]
+		if not isinstance(entries_wrapper, list):
+			_log.warning(
+				"appliedTimeLimits (JSPB): raw[1] is not a list – type=%s. "
+				"Physical devices will not appear in HA.",
+				type(entries_wrapper).__name__,
+			)
+			return []
 
-		# ── today_limit_minutes ───────────────────────────────────────────────
-		# Index 6: usageQuotaMins as an integer (e.g. 95)
-		today_limit: int | None = None
-		if len(entry) > 6 and isinstance(entry[6], int):
-			today_limit = entry[6]
+		devices_jspb: list[dict[str, Any]] = []
+		for entry in entries_wrapper:
+			if not isinstance(entry, list):
+				continue
+			_log.debug("appliedTimeLimits JSPB entry (len=%d): %s", len(entry), entry)
 
-		devices.append(
-			{
-				"device_id": device_id,
-				"is_locked": is_locked,
-				"active_policy": active_policy,
-				"override_action": override_action,
-				"usage_minutes_today": usage_minutes,
-				"today_limit_minutes": today_limit,
-			}
-		)
+			device_id = entry[25] if len(entry) > 25 and isinstance(entry[25], str) else ""
+			if not device_id:
+				_log.warning(
+					"appliedTimeLimits (JSPB) entry skipped: no device_id at index 25 "
+					"(len=%d, index-25=%r). Entry: %s",
+					len(entry),
+					entry[25] if len(entry) > 25 else "<missing>",
+					entry,
+				)
+				continue
 
-	if devices:
-		_log.debug("appliedTimeLimits: parsed %d device(s): %s", len(devices), [d["device_id"] for d in devices])
-	else:
-		_log.warning(
-			"appliedTimeLimits: parser produced 0 devices from %d entries. "
-			"The JSPB field indices (device_id=25) may have changed. "
-			"First raw entry for inspection: %s",
-			len(entries_wrapper),
-			entries_wrapper[0] if entries_wrapper else "<empty>",
-		)
-	return devices
+			is_locked_j: bool = bool(entry[28]) if len(entry) > 28 else False
+			override_action_j: int | None = None
+			overrides = entry[30] if len(entry) > 30 and isinstance(entry[30], list) else []
+			if overrides:
+				first = overrides[0]
+				if isinstance(first, list) and len(first) > 1:
+					try:
+						override_action_j = int(first[1])
+					except (ValueError, TypeError):
+						pass
+
+			if override_action_j is not None:
+				active_policy_j = "override"
+			elif is_locked_j:
+				active_policy_j = "timeLimitOn"
+			else:
+				active_policy_j = "noActivePolicy"
+
+			usage_minutes_j = 0
+			if len(entry) > 19 and entry[19] is not None:
+				try:
+					usage_minutes_j = int(entry[19]) // 60_000
+				except (ValueError, TypeError):
+					pass
+
+			today_limit_j: int | None = None
+			if len(entry) > 6 and isinstance(entry[6], int):
+				today_limit_j = entry[6]
+
+			devices_jspb.append(
+				{
+					"device_id": device_id,
+					"is_locked": is_locked_j,
+					"active_policy": active_policy_j,
+					"override_action": override_action_j,
+					"usage_minutes_today": usage_minutes_j,
+					"today_limit_minutes": today_limit_j,
+				}
+			)
+
+		if devices_jspb:
+			_log.debug(
+				"appliedTimeLimits (JSPB): parsed %d device(s): %s",
+				len(devices_jspb),
+				[d["device_id"] for d in devices_jspb],
+			)
+		else:
+			_log.warning(
+				"appliedTimeLimits (JSPB): 0 devices from %d entries. "
+				"First entry: %s",
+				len(entries_wrapper),
+				entries_wrapper[0] if entries_wrapper else "<empty>",
+			)
+		return devices_jspb
+
+	# ── Unknown format ────────────────────────────────────────────────────────
+	_log.warning(
+		"appliedTimeLimits: unrecognised response type=%s. "
+		"Physical devices will not appear in HA. Value: %r",
+		type(raw).__name__,
+		raw,
+	)
+	return []
