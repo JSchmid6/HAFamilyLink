@@ -280,6 +280,33 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 			await self._async_setup_client()
 		await self.client.async_set_device_bonus_time(child_id, device_id, bonus_minutes)
 
+	async def async_set_today_limit(
+		self, child_id: str, device_id: str, day_num: int, quota_mins: int
+	) -> None:
+		"""Set a one-time today-only screen time limit for a specific device.
+
+		This is a **temporary override** for the current day only and does
+		**NOT** modify the weekly timeLimit schedule.  Corresponds to the
+		"Heutiges Limit" button in the Family Link app (action=8,
+		timeLimitOverrides:batchCreate – confirmed from HAR capture).
+
+		Args:
+			child_id:   The supervised child's user ID.
+			device_id:  Target device ID (from appliedTimeLimits).
+			day_num:    Current weekday (1=Monday … 7=Sunday, from isoweekday()).
+			quota_mins: New daily limit in minutes for today only.
+		"""
+		if self.client is None:
+			await self._async_setup_client()
+		try:
+			entry_id: str = self.data["daily_limits"][child_id][day_num]["entry_id"]
+		except (KeyError, TypeError) as err:
+			raise ValueError(
+				f"No daily limit entry found for child {child_id} day {day_num} – "
+				"ensure the weekly schedule has been fetched at least once"
+			) from err
+		await self.client.async_set_today_limit(child_id, device_id, entry_id, quota_mins)
+
 	async def async_set_bulk_limit(self, child_id: str, minutes: int) -> None:
 		"""Set the same daily time limit for **every** supervisable app of a child.
 

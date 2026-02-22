@@ -21,8 +21,7 @@ from homeassistant.core import HomeAssistant
 
 from ..auth.session import SessionManager
 from .parsers import parse_applied_time_limits
-from ..const import (
-	CAPABILITY_APP_USAGE,
+PLACEHOLDER_WONT_MATCH
 	CAPABILITY_SUPERVISION,
 	CAPABILITY_TIME_LIMITS,
 	DEVICE_LOCK_ACTION,
@@ -35,6 +34,7 @@ from ..const import (
 	LOGGER_NAME,
 	OVERRIDE_ACTION_BONUS,
 	OVERRIDE_ACTION_CLEAR,
+	OVERRIDE_ACTION_TODAY_LIMIT,
 )
 from ..exceptions import (
 	AuthenticationError,
@@ -368,6 +368,67 @@ class FamilyLinkClient:
 		except Exception as err:
 			_LOGGER.error("Failed to set device bonus time: %s", err)
 			raise DeviceControlError(f"Failed to set device bonus time: {err}") from err
+
+	async def async_set_today_limit(
+		self,
+		child_id: str,
+		device_id: str,
+		entry_id: str,
+		quota_mins: int,
+	) -> None:
+		"""Set a one-time today-only screen time limit for a specific device.
+
+		Uses ``POST /people/{child_id}/timeLimitOverrides:batchCreate`` with
+		``action=8`` – confirmed from HAR capture.  This is a **temporary override**
+		for the current day only and does **NOT** modify the weekly timeLimit schedule.
+
+		Confirmed JSPB body format (148 bytes, action=8)::
+
+			[null, child_id,
+			 [[null,null,8,device_id,null,null,null,null,null,null,null,[2,quota_mins,entry_id]]],
+			 [1]]
+
+		where ``entry_id`` is the weekday entry ID from the timeLimit schedule
+		(e.g. ``"CAEQBw"`` for Sunday).
+
+		Args:
+			child_id:   The supervised child's user ID.
+			device_id:  Target device ID (full string from appliedTimeLimits).
+			entry_id:   Weekday entry ID from the timeLimit schedule for today.
+			quota_mins: New daily limit in minutes for today only.
+		"""
+		override_entry = [
+			None, None, OVERRIDE_ACTION_TODAY_LIMIT, device_id,
+			None, None, None, None, None, None, None,
+			[2, quota_mins, entry_id],
+		]
+		payload = json.dumps([None, child_id, [[override_entry]], [1]])
+		url = f"{KIDSMANAGEMENT_BASE_URL}/people/{child_id}/timeLimitOverrides:batchCreate"
+		headers = {
+			"Content-Type": "application/json+protobuf",
+			"x-goog-ext-223261916-bin": GOOG_EXT_BIN_223,
+			"x-goog-ext-202964622-bin": GOOG_EXT_BIN_202,
+			**self._auth_headers(),
+		}
+		session = await self._get_session()
+		_LOGGER.debug(
+			"Setting today's limit: child=%s device=%s entry=%s quota=%s min",
+			child_id, device_id, entry_id, quota_mins,
+		)
+		try:
+			async with session.post(url, data=payload, headers=headers) as resp:
+				resp.raise_for_status()
+		except aiohttp.ClientResponseError as err:
+			_LOGGER.error(
+				"Failed to set today's limit [child=%s device=%s]: HTTP %s",
+				child_id, device_id, err.status,
+			)
+			raise DeviceControlError(
+				f"HTTP {err.status} while setting today's limit"
+			) from err
+		except Exception as err:
+			_LOGGER.error("Failed to set today's limit: %s", err)
+			raise DeviceControlError(f"Failed to set today's limit: {err}") from err
 
 	# ------------------------------------------------------------------
 	# Daily time limits (timeLimit)

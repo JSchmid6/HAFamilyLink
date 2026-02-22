@@ -8,6 +8,10 @@ Additionally, one DeviceBonusTimeNumber is created per physical device.
 Setting a value > 0 grants bonus screen time via timeLimitOverrides:batchCreate.
 Setting to 0 clears all active overrides.
 
+One TodayLimitNumber is created per physical device.  It sets a **one-time today-only
+override** using timeLimitOverrides:batchCreate with action=8 (confirmed from HAR capture).
+This does NOT modify the persistent weekly schedule stored in the timeLimit endpoint.
+
 One DeviceDailyLimitNumber is created per child × day (7 per child),
 representing the persistent daily screen time quota (timeLimit endpoint).
 """
@@ -273,10 +277,14 @@ class TodayLimitNumber(CoordinatorEntity, NumberEntity):
 		}
 
 	async def async_set_native_value(self, value: float) -> None:
-		"""Set today's limit by updating the current weekday entry in the schedule."""
+		"""Set today's limit as a one-time override (does NOT modify the weekly plan).
+
+		Uses timeLimitOverrides:batchCreate with action=8 – confirmed from HAR capture.
+		The entry_id for today's weekday is resolved from the cached daily_limits data.
+		"""
 		today = datetime.date.today().isoweekday()  # 1=Mon … 7=Sun
-		await self.coordinator.async_set_daily_limit(
-			self._child_id, today, int(value)
+		await self.coordinator.async_set_today_limit(
+			self._child_id, self._device_id, today, int(value)
 		)
 		await self.coordinator.async_request_refresh()
 

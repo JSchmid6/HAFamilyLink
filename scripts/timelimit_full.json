@@ -1,0 +1,259 @@
+﻿{
+  "apiHeader": {
+    "serverTimestampMillis": "1771694192491"
+  },
+  "timeLimit": {
+    "timeWindowLimit": {
+      "state": "timeLimitOn",
+      "entries": [
+        {
+          "id": "CAEQAQ",
+          "effectiveDay": "monday",
+          "state": "timeLimitOn",
+          "startsAt": {
+            "hour": 0,
+            "minute": 0
+          },
+          "endsAt": {
+            "hour": 3,
+            "minute": 0
+          },
+          "stateLastUpdatedMillis": "1716144515214",
+          "startsAtEndsAtLastUpdatedMillis": "1716144515214",
+          "supervisionModeId": "51a4ee09-ba93-42f6-8eaa-d04433152f7f"
+        },
+        {
+          "id": "CAEQAg",
+          "effectiveDay": "tuesday",
+          "state": "timeLimitOn",
+          "startsAt": {
+            "hour": 0,
+            "minute": 0
+          },
+          "endsAt": {
+            "hour": 3,
+            "minute": 0
+          },
+          "stateLastUpdatedMillis": "1716144515214",
+          "startsAtEndsAtLastUpdatedMillis": "1716144515214",
+          "supervisionModeId": "51a4ee09-ba93-42f6-8eaa-d04433152f7f"
+        },
+        {
+          "id": "CAEQAw",
+          "effectiveDay": "wednesday",
+          "state": "timeLimitOn",
+          "startsAt": {
+            "hour": 0,
+            "minute": 0
+          },
+          "endsAt": {
+            "hour": 3,
+            "minute": 0
+          },
+          "stateLastUpdatedMillis": "1716144515214",
+          "startsAtEndsAtLastUpdatedMillis": "1716144515214",
+          "supervisionModeId": "51a4ee09-ba93-42f6-8eaa-d04433152f7f"
+        },
+        {
+          "id": "CAEQBA",
+          "effectiveDay": "thursday",
+          "state": "timeLimitOn",
+          "startsAt": {
+            "hour": 0,
+            "minute": 0
+          },
+          "endsAt": {
+            "hour": 3,
+            "minute": 0
+          },
+          "stateLastUpdatedMillis": "1716144515214",
+          "startsAtEndsAtLastUpdatedMillis": "1716144515214",
+          "supervisionModeId": "51a4ee09-ba93-42f6-8eaa-d04433152f7f"
+        },
+        {
+          "id": "CAEQBQ",
+          "effectiveDay": "friday",
+          "state": "timeLimitOn",
+          "startsAt": {
+            "hour": 0,
+            "minute": 0
+          },
+          "endsAt": {
+            "hour": 3,
+            "minute": 0
+          },
+          "stateLastUpdatedMillis": "1716144515214",
+          "startsAtEndsAtLastUpdatedMillis": "1716144515214",
+          "supervisionModeId": "51a4ee09-ba93-42f6-8eaa-d04433152f7f"
+        },
+        {
+          "id": "CAEQBg",
+          "effectiveDay": "saturday",
+          "state": "timeLimitOn",
+          "startsAt": {
+            "hour": 0,
+            "minute": 0
+          },
+          "endsAt": {
+            "hour": 3,
+            "minute": 0
+          },
+          "stateLastUpdatedMillis": "1716144515214",
+          "startsAtEndsAtLastUpdatedMillis": "1716144515214",
+          "supervisionModeId": "51a4ee09-ba93-42f6-8eaa-d04433152f7f"
+        },
+        {
+          "id": "CAEQBw",
+          "effectiveDay": "sunday",
+          "state": "timeLimitOn",
+          "startsAt": {
+            "hour": 0,
+            "minute": 0
+          },
+          "endsAt": {
+            "hour": 3,
+            "minute": 0
+          },
+          "stateLastUpdatedMillis": "1716144515214",
+          "startsAtEndsAtLastUpdatedMillis": "1716144515214",
+          "supervisionModeId": "51a4ee09-ba93-42f6-8eaa-d04433152f7f"
+        }
+      ],
+      "stateLastUpdatedMillis": "1704391266952",
+      "lastUpdatedMillis": "1716144515214",
+      "timeWindowType": "bedtime"
+    },
+    "timeUsageLimits": [
+      {
+        "state": "timeLimitOn",
+        "resetsAt": {
+          "hour": 6,
+          "minute": 0
+        },
+        "entries": [
+          {
+            "id": "CAEQAQ",
+            "effectiveDay": "monday",
+            "state": "timeLimitOn",
+            "usageQuotaMins": 40,
+            "stateLastUpdatedMillis": "1691759143732",
+            "usageQuotaLastUpdatedMillis": "1771690094053"
+          },
+          {
+            "id": "CAEQAg",
+            "effectiveDay": "tuesday",
+            "state": "timeLimitOn",
+            "usageQuotaMins": 30,
+            "stateLastUpdatedMillis": "1691759143732",
+            "usageQuotaLastUpdatedMillis": "1758601179250"
+          },
+          {
+            "id": "CAEQAw",
+            "effectiveDay": "wednesday",
+            "state": "timeLimitOn",
+            "usageQuotaMins": 30,
+            "stateLastUpdatedMillis": "1691759143732",
+            "usageQuotaLastUpdatedMillis": "1716920233606"
+          },
+          {
+            "id": "CAEQBA",
+            "effectiveDay": "thursday",
+            "state": "timeLimitOn",
+            "usageQuotaMins": 30,
+            "stateLastUpdatedMillis": "1691759143732",
+            "usageQuotaLastUpdatedMillis": "1716920233606"
+          },
+          {
+            "id": "CAEQBQ",
+            "effectiveDay": "friday",
+            "state": "timeLimitOn",
+            "usageQuotaMins": 30,
+            "stateLastUpdatedMillis": "1691759143732",
+            "usageQuotaLastUpdatedMillis": "1716920233606"
+          },
+          {
+            "id": "CAEQBg",
+            "effectiveDay": "saturday",
+            "state": "timeLimitOn",
+            "usageQuotaMins": 90,
+            "stateLastUpdatedMillis": "1691853135824",
+            "usageQuotaLastUpdatedMillis": "1716920233606"
+          },
+          {
+            "id": "CAEQBw",
+            "effectiveDay": "sunday",
+            "state": "timeLimitOn",
+            "usageQuotaMins": 90,
+            "stateLastUpdatedMillis": "1691853135824",
+            "usageQuotaLastUpdatedMillis": "1716920233606"
+          }
+        ],
+        "stateLastUpdatedMillis": "1691759143732",
+        "lastUpdatedMillis": "1771690094053"
+      }
+    ],
+    "overrides": [
+      {
+        "id": "5fe40eaa-9809-4fbd-9aeb-414cb4f89731",
+        "createdAtMillis": "1771686801304",
+        "action": "unlockUsageLimit",
+        "deviceId": "aannnppah2mzmppd2pzyvz555w3wbq4f4i2qd7qzrpiq",
+        "unlockUsageData": {
+          "versionInfo": "1771683730218",
+          "entryId": "CAEQBg"
+        },
+        "obfuscatedCreatorId": "104676860663660839016"
+      },
+      {
+        "id": "7dc60f95-0819-4b17-91f2-21ef1345f717",
+        "createdAtMillis": "1771683730218",
+        "action": "todayUsageLimit",
+        "deviceId": "aannnppah2mzmppd2pzyvz555w3wbq4f4i2qd7qzrpiq",
+        "obfuscatedCreatorId": "104676860663660839016",
+        "todayUsageLimitData": {
+          "state": "timeLimitOn",
+          "usageQuotaMins": 90,
+          "entryId": "CAEQBg"
+        }
+      },
+      {
+        "id": "7ed48a51-5b4b-48b7-a3fe-be8d3a1a7e98",
+        "createdAtMillis": "1771686805230",
+        "action": "unlockUntilLockDeadline",
+        "deviceId": "aannnppah2mzmppd2pzyvz555w3wbq4f4i2qd7qzrpiq",
+        "obfuscatedCreatorId": "104676860663660839016"
+      },
+      {
+        "id": "acf71bf5-a452-420c-9fc6-00a314d4ca97",
+        "createdAtMillis": "1771686804388",
+        "action": "unlockWithDeadline",
+        "deviceId": "aannnppah2mzmppd2pzyvz555w3wbq4f4i2qd7qzrpiq",
+        "obfuscatedCreatorId": "104676860663660839016"
+      },
+      {
+        "id": "c54cd579-71e0-42c8-9472-d389b7d53cd7",
+        "createdAtMillis": "1771683708872",
+        "action": "todayUsageLimit",
+        "deviceId": "aannnppah2mzmppd2pzyvz555w3wbq4f4i2qd7qzrpiq",
+        "obfuscatedCreatorId": "104676860663660839016",
+        "todayUsageLimitData": {
+          "state": "timeLimitOn",
+          "usageQuotaMins": 95,
+          "entryId": "CAEQBg"
+        }
+      }
+    ],
+    "timeLimitKey": {
+      "type": "supervisedDevices"
+    },
+    "supervisionModes": [
+      {
+        "id": "51a4ee09-ba93-42f6-8eaa-d04433152f7f",
+        "type": "downtimeMode",
+        "state": "modeEnabled",
+        "stateLastUpdated": "2024-01-04T18:01:06.952246Z"
+      }
+    ]
+  }
+}
+
