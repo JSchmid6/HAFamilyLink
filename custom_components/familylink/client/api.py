@@ -21,7 +21,8 @@ from homeassistant.core import HomeAssistant
 
 from ..auth.session import SessionManager
 from .parsers import parse_applied_time_limits
-PLACEHOLDER_WONT_MATCH
+from ..const import (
+	CAPABILITY_APP_USAGE,
 	CAPABILITY_SUPERVISION,
 	CAPABILITY_TIME_LIMITS,
 	DEVICE_LOCK_ACTION,
