@@ -132,9 +132,17 @@ def parse_applied_time_limits(raw: dict[str, Any]) -> list[dict[str, Any]]:
 		except (ValueError, TypeError):
 			usage_minutes = 0
 
-		# Today's daily quota – prefer the "today" entry, fall back to "next"
+		# Today's daily quota.
+		# Field name varies by API call path; try most-specific first.
+		# "nextUsageLimitEntry" is intentionally excluded: it holds *tomorrow's* plan
+		# and causes an off-by-one when today's entry is absent (e.g. Sunday with
+		# no scheduled limit).
 		today_limit: int | None = None
-		for limit_key in ("inactiveCurrentUsageLimitEntry", "nextUsageLimitEntry"):
+		for limit_key in (
+			"currentUsageLimitEntry",
+			"inactiveCurrentUsageLimitEntry",
+			"usageLimitEntry",
+		):
 			limit_entry = entry.get(limit_key)
 			if isinstance(limit_entry, dict):
 				quota = limit_entry.get("usageQuotaMins")

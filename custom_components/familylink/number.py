@@ -157,6 +157,8 @@ class DeviceBonusTimeNumber(CoordinatorEntity, NumberEntity):
 	Setting N > 0 grants N additional minutes via timeLimitOverrides:batchCreate.
 	Setting 0 clears all active overrides (e.g. removes a device lock).
 	Always reads back as 0 – bonus time is a command, not persistent state.
+
+	Hidden by default – use TodayLimitNumber to set today's total limit directly.
 	"""
 
 	_attr_mode = NumberMode.BOX
@@ -165,6 +167,7 @@ class DeviceBonusTimeNumber(CoordinatorEntity, NumberEntity):
 	_attr_native_step = 15.0
 	_attr_native_unit_of_measurement = UnitOfTime.MINUTES
 	_attr_icon = "mdi:timer-plus-outline"
+	_attr_entity_registry_enabled_default = False
 
 	def __init__(
 		self,
@@ -209,12 +212,15 @@ class DeviceBonusTimeNumber(CoordinatorEntity, NumberEntity):
 
 
 class TodayLimitNumber(CoordinatorEntity, NumberEntity):
-	"""Daily screen time limit for today – shown on the physical device, set per child.
+	"""Today's screen time limit – readable and adjustable.
 
-	Reads ``today_limit_minutes`` from the ``appliedTimeLimits`` response (device-level).
-	Writes via ``timeLimit:update`` for today's weekday (child-level API).
+	Displays the current applied daily quota for this device (from appliedTimeLimits,
+	falling back to the weekly schedule if no override is active).
 
-	This is the primary control for day-to-day limit adjustments.
+	Setting a value sends a one-time override via
+	``timeLimitOverrides:batchCreate`` with ``action=8`` – the same mechanism
+	as the "Heutiges Limit" button in the Family Link app.  The weekly schedule
+	is NOT modified.
 	"""
 
 	_attr_mode = NumberMode.BOX
@@ -255,25 +261,51 @@ class TodayLimitNumber(CoordinatorEntity, NumberEntity):
 
 	@property
 	def native_value(self) -> float | None:
-		"""Return today's effective limit from appliedTimeLimits (device data)."""
+		"""Return today's applied screen time limit in minutes.
+
+		First tries ``today_limit_minutes`` from the ``appliedTimeLimits`` response.
+		Falls back to the weekly schedule (``daily_limits``) for today's weekday if
+		the applied-limits parser returns nothing – avoids showing a neighbouring
+		day's value caused by ``nextUsageLimitEntry`` ambiguity.
+		"""
 		if not self.coordinator.data:
 			return None
+		# Primary: applied limit from appliedTimeLimits
 		device_list: list[dict[str, Any]] = (
 			self.coordinator.data.get("devices", {}).get(self._child_id, [])
 		)
 		for dev in device_list:
 			if dev["device_id"] == self._device_id:
 				limit = dev.get("today_limit_minutes")
-				return float(limit) if limit is not None else None
+				if limit is not None:
+					return float(limit)
+				break  # device found but no limit – fall through to daily_limits
+		# Fallback: weekly schedule for today's weekday
+		today = datetime.date.today().isoweekday()  # 1=Mon … 7=Sun
+		day_data = (
+			self.coordinator.data.get("daily_limits", {})
+			.get(self._child_id, {})
+			.get(today)
+		)
+		if day_data is not None:
+			return float(day_data["quota_mins"])
 		return None
 
 	@property
 	def extra_state_attributes(self) -> dict[str, Any]:
-		"""Show which weekday is currently active."""
+		"""Show which weekday is currently active and the data source."""
 		today = datetime.date.today().isoweekday()  # 1=Mon … 7=Sun
+		# Determine if the value came from appliedTimeLimits or daily_limits
+		source = "daily_limits"
+		if self.coordinator.data:
+			for dev in self.coordinator.data.get("devices", {}).get(self._child_id, []):
+				if dev["device_id"] == self._device_id and dev.get("today_limit_minutes") is not None:
+					source = "applied_time_limits"
+					break
 		return {
 			"weekday": _DAY_NAMES.get(today, str(today)),
 			"child_id": self._child_id,
+			"value_source": source,
 		}
 
 	async def async_set_native_value(self, value: float) -> None:

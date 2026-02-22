@@ -389,8 +389,9 @@ class FamilyLinkClient:
 			 [[null,null,8,device_id,null,null,null,null,null,null,null,[2,quota_mins,entry_id]]],
 			 [1]]
 
-		where ``entry_id`` is the weekday entry ID from the timeLimit schedule
-		(e.g. ``"CAEQBw"`` for Sunday).
+		where index 2 of the outer array is a list containing the single override
+		entry (one wrap level). ``entry_id`` is the weekday entry ID from the
+		timeLimit schedule (e.g. ``"CAEQBw"`` for Sunday).
 
 		Args:
 			child_id:   The supervised child's user ID.
@@ -403,7 +404,7 @@ class FamilyLinkClient:
 			None, None, None, None, None, None, None,
 			[2, quota_mins, entry_id],
 		]
-		payload = json.dumps([None, child_id, [[override_entry]], [1]])
+		payload = json.dumps([None, child_id, [override_entry], [1]])
 		url = f"{KIDSMANAGEMENT_BASE_URL}/people/{child_id}/timeLimitOverrides:batchCreate"
 		headers = {
 			"Content-Type": "application/json+protobuf",
