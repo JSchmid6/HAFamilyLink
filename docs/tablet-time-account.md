@@ -31,8 +31,8 @@ Die gebuchte Zeit wird automatisch als tages-Override in Google Family Link eing
 │  └──────────────────┘   └──────────────────┘                   │
 └──────────────────────────────┬──────────────────────────────────┘
                                │
-                          REST API
-                    (Long-lived Token)
+                    REST + WebSocket API
+                    (kind-spezifischer Token)
                                │
               ┌────────────────┴────────────────┐
               │                                 │
@@ -40,8 +40,8 @@ Die gebuchte Zeit wird automatisch als tages-Override in Google Family Link eing
    │   Ronja's Tablet    │           │   Emilio's Tablet   │
    │                     │           │                     │
    │  ┌───────────────┐  │           │  ┌───────────────┐  │
-   │  │  Buchungs-App │  │           │  │  Buchungs-App │  │
-   │  │  (PWA/Kiosk)  │  │           │  │  (PWA/Kiosk)  │  │
+   │  │  Android App  │  │           │  │  Android App  │  │
+   │  │  (Flutter)    │  │           │  │  (Flutter)    │  │
    │  └───────────────┘  │           │  └───────────────┘  │
    └─────────────────────┘           └─────────────────────┘
 ```
@@ -86,53 +86,123 @@ Buchung(kind_id, device_id, betrag_minuten)
 
 ### 3. Tablet-App
 
-#### Technologie-Optionen
+#### Technologie-Entscheidung: Flutter (Android)
 
-| Option | Aufwand | Vorteile | Nachteile |
-|---|---|---|---|
-| **HA Companion App + Lovelace-Panel** (eigene View) | Gering | Kein Extra-Code, HA-Auth | Companion-App nötig, voller HA-Zugriff wenn unvorsichtig |
-| **PWA (eigene statische Webseite)** | Mittel | Kiosk-fähig, minimales UI, nur REST-Calls | Hosting nötig (HA Static Files oder externer Server) |
-| **Custom HA Panel (iframe)** | Mittel | In HA integriert, eigenes UI möglich | Mehr Setup |
-| **Android-App (Kotlin/Flutter)** | Hoch | Native, Offline-Fähigkeit | Sehr viel Aufwand |
+**Flutter** wird als App-Framework gewählt.
 
-→ **Empfehlung: PWA**, gehostet als statische Seite direkt in HA unter `www/tablettime/index.html`. Kein Webserver nötig, erreichbar unter `http://homeassistant.local:8123/local/tablettime/`.
+| Kriterium | Begründung |
+|---|---|
+| Kein Web-Hosting nötig | App läuft nativ auf dem Tablet, kein HA-Static-Files-Trick |
+| Einfache Installation | APK einmalig seitlich laden (kein Play Store nötig) oder per ADB |
+| Selbstkonfigurierend | Setup-Wizard konfiguriert alles automatisch via HA-API |
+| Kiosk-fähig | Android-Kiosk-Modus oder einfach Vollbild + kein Zurück-Button |
+| Zukunftssicher | Flutter läuft ggf. auch auf iOS, wenn weitere Geräte dazukommen |
+| Offline-Anzeige | App kann Status cachen, auch wenn HA kurz nicht erreichbar ist |
 
-#### UI (einfach halten)
+#### Setup-Wizard (einmalig, läuft auf dem Tablet)
+
+Der Elternteil richtet die App einmalig auf jedem Tablet ein – die App erledigt den Rest selbst:
 
 ```
-┌─────────────────────────┐
-│   🕒 Ronja's Zeitkonto  │
-│                         │
-│      ⏱ 120 Minuten      │
-│         Guthaben        │
-│                         │
-│  [ 15 min ]  [ 30 min ] │
-│  [ 45 min ]  [ 60 min ] │
-│                         │
-│   Heute gebucht: 0 min  │
-│   Limit heute: 60 min   │
-└─────────────────────────┘
+Schritt 1: HA-URL eingeben
+  ┌──────────────────────────────┐
+  │  HA-Adresse:                 │
+  │  [ http://192.168.1.10:8123] │
+  │                              │
+  │           [Weiter]           │
+  └──────────────────────────────┘
+
+Schritt 2: Admin-Login (einmalig, nur für Setup)
+  ┌──────────────────────────────┐
+  │  Benutzername: [admin      ] │
+  │  Passwort:     [**********] │
+  │                              │
+  │  ⚠ Wird nur einmalig für    │
+  │  die Einrichtung verwendet.  │
+  │           [Anmelden]         │
+  └──────────────────────────────┘
+
+Schritt 3: Kind auswählen
+  ┌──────────────────────────────┐
+  │  Dieses Tablet gehört:       │
+  │                              │
+  │  ○ Ronja                     │
+  │  ● Emilio                    │
+  │  ○ Lennard                   │
+  │                              │
+  │  (Kinder von FamilyLink      │
+  │   automatisch erkannt)       │
+  │           [Einrichten]       │
+  └──────────────────────────────┘
+
+Schritt 4: App richtet automatisch ein:
+  ✓ HA-Benutzer "tabletapp_emilio" erstellt
+  ✓ Eingeschränkten Long-lived Token generiert
+  ✓ input_number.zeitkonto_emilio gefunden/angelegt
+  ✓ FamilyLink-Gerät für dieses Tablet erkannt
+  ✓ Admin-Credentials gelöscht – nur Kind-Token bleibt
+  ✓ Fertig!
 ```
 
-Kein Login-Formular – die App ist gerätespezifisch (Token ist in der App hinterlegt).
+#### Was die App automatisch per HA-API einrichtet
+
+1. **Admin-Token holen** via `POST /auth/token` (OAuth password grant)
+2. **HA-Benutzer anlegen** via WebSocket API: `auth/create_user`
+3. **Long-lived Token für Kind-User erstellen** via WebSocket: `auth/long_lived_access_token`
+4. **`input_number.zeitkonto_{kind}` prüfen** – falls nicht vorhanden: via `helpers` API anlegen
+5. **FamilyLink-Gerät-ID ermitteln** – aus den HA-Entitäten (`sensor.*_screen_time`) das passende Gerät für dieses Tablet herauslesen (ggf. aus einer Liste wählen lassen)
+6. **Konfiguration lokal speichern** (SharedPreferences/SecureStorage): Kind-Token, HA-URL, child_id, device_id
+7. **Admin-Credentials verwerfen** – niemals persistent speichern
+
+#### UI (Normalbetrieb, einfach halten)
+
+```
+┌─────────────────────────────┐
+│   🕒  Emilios Zeitkonto     │
+│                             │
+│        ⏱  45 Minuten        │
+│           Guthaben          │
+│                             │
+│  ┌────────┐  ┌────────┐     │
+│  │ 15 min │  │ 30 min │     │
+│  └────────┘  └────────┘     │
+│  ┌────────┐  ┌────────┐     │
+│  │ 45 min │  │ 60 min │     │
+│  └────────┘  └────────┘     │
+│                             │
+│  Heute gebucht:   30 min    │
+│  Aktuelles Limit: 90 min    │
+└─────────────────────────────┘
+```
+
+Kein dauerhafter Login – die App startet direkt im Konto-Bildschirm.  
+Buchungsbuttons sind ausgegraut wenn Guthaben < Betrag.  
+Nach Buchung: kurze Bestätigungsanimation + Guthaben aktualisiert.
 
 ---
 
 ### 4. Authentifizierung
 
-- Pro Kind/Gerät wird ein **HA-Benutzer mit eingeschränkten Rechten** angelegt.
-- Für diesen Benutzer wird ein **Long-Lived Access Token** generiert.
-- Der Token wird einmalig in der App-Config hinterlegt (z.B. als JS-Konstante in der HTML-Seite oder als `config.json` neben `index.html`).
-- Der Token gibt nur Zugriff auf:
-  - `input_number.zeitkonto_{kind}` (read-only)
-  - `script.buche_tabletzeit` (call only)
-  - `sensor.familylink_*_{device_id}_*` (read-only, für aktuelles Limit)
+**Kein manuelles Token-Management** – der Setup-Wizard erledigt alles:
 
-**Offene Frage:** HA unterstützt noch keine feingranularen Berechtigungen pro Token standardmäßig. Optionen:
-- Eigene HA-User-Gruppe (erfordert `auth` in `configuration.yaml`)
-- Token-Validierung im Script selbst (prüfen welcher User den Call auslöst)
-- API-Proxy (kleines Middleware-Script, das nur bestimmte Calls durchlässt)
-→ Erstmal pragmatisch: separater HA-Nutzer mit "nur Home Assistant"-Rolle, Token in App.
+| Phase | Wer | Was |
+|---|---|---|
+| Setup | Admin | Gibt HA-URL + Admin-Credentials in die App ein |
+| Setup | App (auto) | Erstellt HA-Benutzer `tabletapp_{kind}` per WebSocket API |
+| Setup | App (auto) | Generiert Long-lived Token für diesen Nutzer |
+| Setup | App (auto) | Speichert Token sicher in Android SecureStorage (EncryptedSharedPreferences) |
+| Setup | App (auto) | Löscht Admin-Credentials aus dem Arbeitsspeicher |
+| Betrieb | App | Verwendet nur den eingeschränkten Kind-Token für alle API-Calls |
+
+**Berechtigungen des Kind-Tokens:**
+- `input_number.zeitkonto_{kind}` lesen
+- `script.buche_tabletzeit` aufrufen
+- `number.familylink_*_{device_id}_today_limit` lesen (Status-Anzeige)
+- `sensor.familylink_*_{device_id}_screen_time` lesen
+
+HA unterstützt noch keine feingranularen Berechtigungen per Token nativ.  
+Lösung: Ein eigener HA-Nutzer mit der Rolle **"User"** (nicht Admin) darf über normale HA-Mechanismen keine sicherheitskritischen Aktionen ausführen.  
+Das Buchungs-Script prüft zusätzlich intern, ob der aufrufende User-Token zum richtigen Kind passt.
 
 ---
 
@@ -188,31 +258,43 @@ Kind                    Tablet-App              Home Assistant
 
 ## Implementierungsphasen
 
-### Phase 1 – Grundgerüst (HA-Only, kein Code)
+### Phase 1 – Grundgerüst (HA-Only, kein Flutter)
 - [ ] `input_number`-Entitäten für jedes Kind anlegen (Helpers UI)
 - [ ] HA-Script `script.buche_tabletzeit` schreiben (YAML)
-- [ ] Script testet in DevTools: Guthaben lesen, Limit setzen, abbuchen
+- [ ] Script in DevTools testen: Guthaben lesen, Limit setzen, abbuchen
 - [ ] Einfaches Lovelace-Dashboard für Eltern (Guthaben-Ansicht + manuelles Aufbuchen)
 
-### Phase 2 – Tablet-App (PWA)
-- [ ] `www/tablettime/index.html` + `config.json` erstellen
-- [ ] Kind-spezifischer HA-Benutzer + Long-lived Token
-- [ ] App zeigt Guthaben und aktuelles Tageslimit
-- [ ] Buchungsbuttons (15/30/45/60 min) → rufen Script auf
-- [ ] Bestätigungsdialog vor Buchung
-- [ ] Fehleranzeige bei leerem Konto
+### Phase 2 – Flutter App (Basis)
+- [ ] Flutter-Projekt anlegen (`tablet_time_app/`)
+- [ ] Setup-Wizard implementieren:
+  - [ ] HA-URL Eingabe + Verbindungstest
+  - [ ] Admin-Login via `POST /auth/token`
+  - [ ] FamilyLink-Kinder aus HA-Entities auslesen
+  - [ ] Kind auswählen
+  - [ ] HA-Benutzer + Token per WebSocket API erstellen
+  - [ ] `input_number` prüfen / anlegen
+  - [ ] FamilyLink device_id zuweisen (aus Liste wählen)
+  - [ ] Admin-Credentials verwerfen, Kind-Token in SecureStorage speichern
+- [ ] Hauptbildschirm:
+  - [ ] Guthaben lesen + anzeigen
+  - [ ] Buchungsbuttons (15/30/45/60 min)
+  - [ ] Bestätigungsdialog
+  - [ ] Heute gebuchte Zeit + aktuelles Tageslimit anzeigen
+- [ ] Fehlerbehandlung: kein Guthaben, HA nicht erreichbar
 
 ### Phase 3 – Verfeinerung
-- [ ] Buchungs-Log (wann wurde was gebucht) – via `logbook` oder `history`
+- [ ] Buchungs-Log (wann wurde was gebucht)
 - [ ] Push-Benachrichtigung an Eltern bei Buchung
-- [ ] Rollover: nicht verbrauchtes Tageslimit verfällt (Nacht-Reset)
 - [ ] Wochenlimit: nicht mehr als X Minuten pro Woche buchbar
-- [ ] Automatisierte Gutschriften (NFC, Kalender, Checkliste)
+- [ ] Rollover-Logik (Nacht-Reset für "heute gebucht")
+- [ ] APK-Verteilung / Update-Mechanismus
+- [ ] Kiosk-Modus (Vollbild, kein Zurück, kein Task-Switcher)
 
-### Phase 4 – Integration in FamilyLink-Custom-Component (optional)
-- [ ] Zeitkonto als eigene Sensor-/Number-Entität direkt in der Integration
-- [ ] Persistenz über HA-Storage statt `input_number`
-- [ ] Buchungs-Service als registrierter HA-Service im DOMAIN
+### Phase 4 – Automatisierte Gutschriften (Eltern-Seite)
+- [ ] NFC-Tag scannen → +X Minuten
+- [ ] Kalender-Eintrag "Gelesen" → +15 min
+- [ ] HA-Todo abgehakt → +X min
+- [ ] Lovelace-Karte "Guthaben aufbuchen" mit Vorschlägen (Lesen, Helfen, Lernen)
 
 ---
 
@@ -316,5 +398,28 @@ script:
 
 1. **Offene Fragen 1–3 klären** (Buchungslogik festlegen)
 2. **Phase 1 starten:** `input_number`-Entitäten anlegen und Script in HA testen
-3. **Tablet-App skizzieren** – welches Gerät, wie soll der Kiosk-Modus aussehen?
-4. **Entity-IDs der FamilyLink-Geräte ermitteln** (via Diagnosescript oder HA DevTools), damit die Script-Templates stimmen
+3. **Flutter-Projekt anlegen** (`tablet_time_app/` im Repo oder separates Repo?)
+4. **Entity-IDs der FamilyLink-Geräte ermitteln** (via Diagnosescript oder HA DevTools), damit die Script-Templates und der Setup-Wizard die richtigen IDs finden
+5. **HA WebSocket API prüfen:** Kann ein Admin-Token wirklich neue User + Tokens per API anlegen? (Test in DevTools: `ws://ha:8123/api/websocket`, Message-Typ `auth/create_user`)
+
+---
+
+## HA WebSocket API – Relevante Calls für den Setup-Wizard
+
+```json
+// 1. Einloggen
+{"type": "auth", "access_token": "<admin_token>"}
+
+// 2. Benutzer anlegen
+{"id": 1, "type": "config/auth/create", "name": "tabletapp_emilio", "group_ids": ["system-users"], "local_only": true}
+
+// 3. Long-lived Token für neuen User erzeugen
+//    (muss als dieser User authentifiziert sein – ggf. erst einloggen als neuer User)
+{"id": 2, "type": "auth/long_lived_access_token", "client_name": "TabletApp Emilio", "lifespan": 3650}
+
+// 4. input_number anlegen (falls nicht vorhanden)
+{"id": 3, "type": "input_number/create", "name": "Zeitkonto Emilio", "min": 0, "max": 600, "step": 5}
+
+// 5. Alle States lesen (um FamilyLink-Entities zu finden)
+{"id": 4, "type": "get_states"}
+```
