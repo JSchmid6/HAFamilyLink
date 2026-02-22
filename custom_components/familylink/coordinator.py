@@ -127,6 +127,12 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 						)
 						devices[cid] = []
 					else:
+						if not dev_result:
+							_LOGGER.warning(
+								"appliedTimeLimits returned empty list for child %s – "
+								"check if JSPB parser is receiving the expected array format",
+								cid,
+							)
 						# Enrich each device entry with its human-readable name
 						name_map: dict[str, str] = name_result if isinstance(name_result, dict) else {}
 						for dev in dev_result:

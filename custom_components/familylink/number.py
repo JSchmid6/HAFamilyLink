@@ -67,28 +67,38 @@ async def async_setup_entry(
 				ai["app"]: ai.get("limit_minutes")
 				for ai in child_restrictions.get("limited", [])
 			}
-			for sup_app in child_restrictions.get("supervisable", []):
-				title = sup_app["title"]
-				current_limit = limited_lookup.get(title, 0) or 0
-				entities.append(AppTimeLimitNumber(coordinator, child, title, current_limit))
-			for dev in devices_map.get(cid, []):
-				dev_name = dev.get("device_name", "")
-				entities.append(DeviceBonusTimeNumber(coordinator, child, dev["device_id"], dev_name))
-				# "Today's limit" control – shows & sets today's daily quota on the device
-				entities.append(TodayLimitNumber(coordinator, child, dev["device_id"], dev_name))
 
-			# Per-day limit entities (Mon–Sun) – hidden by default, available for advanced use
-			daily_limits_map: dict[str, Any] = coordinator.data.get("daily_limits", {})
-			for day_num in range(1, 8):
-				if day_num in daily_limits_map.get(cid, {}):
-					entities.append(DeviceDailyLimitNumber(coordinator, child, day_num))
+				# Use the first known device to group child-level entities (app limits,
+				# weekly plan) under the physical device card in HA.
+				child_devices = devices_map.get(cid, [])
+				first_dev_id = child_devices[0]["device_id"] if child_devices else ""
+				first_dev_name = child_devices[0].get("device_name", "") if child_devices else ""
 
-	async_add_entities(entities, update_before_add=True)
+				for sup_app in child_restrictions.get("supervisable", []):
+					title = sup_app["title"]
+					current_limit = limited_lookup.get(title, 0) or 0
+					entities.append(
+						AppTimeLimitNumber(
+							coordinator, child, title, current_limit,
+							first_dev_id, first_dev_name,
+						)
+					)
+				for dev in child_devices:
+					dev_name = dev.get("device_name", "")
+					entities.append(DeviceBonusTimeNumber(coordinator, child, dev["device_id"], dev_name))
+					# "Today's limit" control – shows & sets today's daily quota on the device
+					entities.append(TodayLimitNumber(coordinator, child, dev["device_id"], dev_name))
 
-
-class AppTimeLimitNumber(CoordinatorEntity, NumberEntity):
-	"""Adjustable daily time limit (minutes) for one app on a child device.
-
+				# Per-day limit entities (Mon–Sun) – hidden by default, available for advanced use
+				daily_limits_map: dict[str, Any] = coordinator.data.get("daily_limits", {})
+				for day_num in range(1, 8):
+					if day_num in daily_limits_map.get(cid, {}):
+						entities.append(
+							DeviceDailyLimitNumber(
+								coordinator, child, day_num,
+								first_dev_id, first_dev_name,
+							)
+						)
 	A value of 0 means the app is unrestricted. Setting 0 removes an existing limit.
 	Hidden by default to reduce clutter – enable individually in the entity registry.
 	"""
@@ -107,19 +117,40 @@ class AppTimeLimitNumber(CoordinatorEntity, NumberEntity):
 		child: dict[str, Any],
 		app_name: str,
 		initial_limit_minutes: int,
+		device_id: str = "",
+		device_name: str = "",
 	) -> None:
 		"""Initialize the number entity."""
 		super().__init__(coordinator)
 		self._child_id: str = child["child_id"]
 		self._child_name: str = child.get("name", self._child_id)
 		self._app_name: str = app_name
+		self._device_id: str = device_id
+		self._device_name: str = device_name or (f"…{device_id[-6:]}" if device_id else "")
 		slug = app_name.lower().replace(" ", "_").replace(".", "_")
 		self._attr_name = f"{self._child_name} {app_name} Daily Limit"
 		self._attr_unique_id = f"{DOMAIN}_{self._child_id}_{slug}_limit"
 
 	@property
 	def device_info(self) -> DeviceInfo:
-		"""Group the entity under the child HA device."""
+		"""Group the entity under the physical device (if known), else child."""
+		if self._device_id:
+			device_name = self._device_name
+			if self.coordinator.data:
+				for dev in self.coordinator.data.get("devices", {}).get(self._child_id, []):
+					if dev["device_id"] == self._device_id and dev.get("device_name"):
+						device_name = dev["device_name"]
+						break
+			return DeviceInfo(
+				identifiers={(DOMAIN, self._device_id)},
+				name=f"{self._child_name} {device_name}",
+				manufacturer="Google",
+				model="Android Device",
+				entry_type=DeviceEntryType.SERVICE,
+				via_device=(DOMAIN, self._child_id),
+				configuration_url=FAMILYLINK_BASE_URL,
+			)
+		# Fallback: child device (no physical device known)
 		return DeviceInfo(
 			identifiers={(DOMAIN, self._child_id)},
 			name=self._child_name,
@@ -355,19 +386,39 @@ class DeviceDailyLimitNumber(CoordinatorEntity, NumberEntity):
 		coordinator: FamilyLinkDataUpdateCoordinator,
 		child: dict[str, Any],
 		day_num: int,
+		device_id: str = "",
+		device_name: str = "",
 	) -> None:
 		"""Initialize the daily limit number entity."""
 		super().__init__(coordinator)
 		self._child_id: str = child["child_id"]
 		self._child_name: str = child.get("name", self._child_id)
 		self._day_num: int = day_num
+		self._device_id: str = device_id
+		self._device_name: str = device_name or (f"…{device_id[-6:]}" if device_id else "")
 		day_name = _DAY_NAMES[day_num]
 		self._attr_name = f"{self._child_name} Daily Limit {day_name}"
 		self._attr_unique_id = f"{DOMAIN}_{self._child_id}_daily_limit_{day_num}"
 
 	@property
 	def device_info(self) -> DeviceInfo:
-		"""Group entity under the child HA device."""
+		"""Group entity under the physical device (if known), else child."""
+		if self._device_id:
+			device_name = self._device_name
+			if self.coordinator.data:
+				for dev in self.coordinator.data.get("devices", {}).get(self._child_id, []):
+					if dev["device_id"] == self._device_id and dev.get("device_name"):
+						device_name = dev["device_name"]
+						break
+			return DeviceInfo(
+				identifiers={(DOMAIN, self._device_id)},
+				name=f"{self._child_name} {device_name}",
+				manufacturer="Google",
+				model="Android Device",
+				entry_type=DeviceEntryType.SERVICE,
+				via_device=(DOMAIN, self._child_id),
+				configuration_url=FAMILYLINK_BASE_URL,
+			)
 		return DeviceInfo(
 			identifiers={(DOMAIN, self._child_id)},
 			name=self._child_name,

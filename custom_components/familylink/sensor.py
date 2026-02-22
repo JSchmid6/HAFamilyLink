@@ -50,7 +50,13 @@ async def async_setup_entry(
 
 			# Per-physical-device sensors
 			for dev in devices_map.get(child["child_id"], []):
-				entities.append(DeviceScreenTimeSensor(coordinator, child, dev["device_id"]))
+				entities.append(
+					DeviceScreenTimeSensor(
+						coordinator, child,
+						dev["device_id"],
+						dev.get("device_name", ""),
+					)
+				)
 
 	async_add_entities(entities, update_before_add=True)
 
@@ -136,25 +142,30 @@ class DeviceScreenTimeSensor(CoordinatorEntity, SensorEntity):
 		coordinator: FamilyLinkDataUpdateCoordinator,
 		child: dict[str, Any],
 		device_id: str,
+		device_name: str = "",
 	) -> None:
 		"""Initialize the device screen-time sensor."""
 		super().__init__(coordinator)
 		self._child_id: str = child["child_id"]
 		self._child_name: str = child.get("name", self._child_id)
 		self._device_id: str = device_id
-
-		# Short suffix to make the name unique when a child has multiple devices
-		suffix = device_id[-6:]
-		self._attr_name = f"{self._child_name} Device ({suffix}) Screen Time"
+		self._device_name: str = device_name or f"…{device_id[-6:]}"
+		self._attr_name = f"{self._child_name} {self._device_name} Screen Time"
 		self._attr_unique_id = f"{DOMAIN}_{self._child_id}_{device_id}_screen_time"
 
 	@property
 	def device_info(self) -> DeviceInfo:
 		"""Group entity under its own HA device, linked to the child device."""
-		suffix = self._device_id[-6:]
+		# Live-update name from coordinator in case it resolved after setup
+		device_name = self._device_name
+		if self.coordinator.data:
+			for dev in self.coordinator.data.get("devices", {}).get(self._child_id, []):
+				if dev["device_id"] == self._device_id and dev.get("device_name"):
+					device_name = dev["device_name"]
+					break
 		return DeviceInfo(
 			identifiers={(DOMAIN, self._device_id)},
-			name=f"{self._child_name} ({suffix})",
+			name=f"{self._child_name} {device_name}",
 			manufacturer="Google",
 			model="Android Device",
 			entry_type=DeviceEntryType.SERVICE,
