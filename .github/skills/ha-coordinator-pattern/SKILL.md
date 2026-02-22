@@ -39,6 +39,13 @@ a list of supervised children used by the switch platform.
 Lazy-initialises `self.client` (a `FamilyLinkClient`).  Called by
 `_async_update_data` and every `async_*` action method.
 
+### `_async_persist_cookies`
+Called at the end of every **successful** `_async_update_data` run (before the
+`return`).  Merges any `Set-Cookie` renewals captured during the HTTP cycle
+back into `entry.data["cookies"]` via `hass.config_entries.async_update_entry`.
+See the **`ha-cookie-renewal`** skill for the full pattern including the
+reload-guard in `__init__.py`.
+
 ### Action methods (called by LLM tools)
 Every public async method is a thin wrapper that:
 1. Ensures the client is set up (`if self.client is None: await _async_setup_client()`)

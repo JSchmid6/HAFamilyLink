@@ -63,14 +63,39 @@ description: >
 
 ---
 
+## Cookie auto-renewal (FamilyLink-specific)
+
+Google returns fresh `Set-Cookie` headers on most API responses.  Because
+cookies are injected as a flat `Cookie:` header (not via the aiohttp
+CookieJar), these renewals are captured manually via an aiohttp `TraceConfig`
+hook in `_get_session()`. See the **`ha-cookie-renewal`** skill for the general
+pattern.  FamilyLink-specific details:
+
+- Hook: `trace_config.on_request_end` → `_capture_set_cookies(params.response.headers)`
+- Buffer: `FamilyLinkClient._pending_cookie_updates: dict[str, str]`
+- Merge & clear: `FamilyLinkClient.get_updated_cookies()` – called by the
+  coordinator after each successful update cycle
+- Persistence: `coordinator._async_persist_cookies()` calls
+  `hass.config_entries.async_update_entry(entry, data={...cookies...})`
+
+### Debugging cookie renewal
+- Log line `"Cookie auto-renewed via Set-Cookie: <name>"` at DEBUG level
+  confirms a renewal was captured.
+- Log line `"Persisted N cookie(s) back to config entry after auto-renewal"`
+  confirms persistence succeeded.
+- If neither line appears, check that `_get_session()` is creating a new
+  session (the TraceConfig is only installed on session creation).
+
+---
+
 ## Key files
 
 | File | Role |
 |---|---|
 | `auth/session.py` | Loads/saves/validates cookies from config entry |
 | `auth/browser.py` | Playwright browser login & cookie extraction |
-| `client/api.py` | `_get_sapisid()`, `_auth_headers()`, `_get_session()` |
-| `coordinator.py` | `_async_refresh_auth()` – triggers reauth flow |
+| `client/api.py` | `_get_sapisid()`, `_auth_headers()`, `_get_session()`, `_capture_set_cookies()`, `get_updated_cookies()` |
+| `coordinator.py` | `_async_refresh_auth()`, `_async_persist_cookies()` |
 | `config_flow.py` | Login step & reauth step |
 
 ---
