@@ -61,3 +61,5 @@ Thumbs.db
 
 # Logs
 *.log 
+# HAR files may contain auth tokens and PII
+*.har
