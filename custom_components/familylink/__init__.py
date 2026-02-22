@@ -39,8 +39,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 		# Register LLM agent skills (tools) for conversation agents
 		async_register_llm_api(hass, entry)
 
-		# Reload the entry when the user changes options (e.g. polling interval)
-		entry.async_on_unload(entry.add_update_listener(async_reload_entry))
+		# Reload only when *options* genuinely change (e.g. polling interval).
+		# async_update_entry also fires the listener for data-only writes such as
+		# cookie auto-renewal – those must NOT trigger a reload.
+		_options_snapshot = dict(entry.options)
+
+		async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
+			if dict(entry.options) != _options_snapshot:
+				_LOGGER.debug("Options changed – reloading Family Link entry")
+				await async_reload_entry(hass, entry)
+			else:
+				_LOGGER.debug("Entry data updated (cookie renewal) – skipping reload")
+
+		entry.async_on_unload(entry.add_update_listener(_async_options_updated))
 
 		_LOGGER.info("Successfully set up Family Link integration")
 		return True
