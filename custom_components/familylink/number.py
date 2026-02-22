@@ -72,9 +72,10 @@ async def async_setup_entry(
 				current_limit = limited_lookup.get(title, 0) or 0
 				entities.append(AppTimeLimitNumber(coordinator, child, title, current_limit))
 			for dev in devices_map.get(cid, []):
-				entities.append(DeviceBonusTimeNumber(coordinator, child, dev["device_id"]))
+				dev_name = dev.get("device_name", "")
+				entities.append(DeviceBonusTimeNumber(coordinator, child, dev["device_id"], dev_name))
 				# "Today's limit" control – shows & sets today's daily quota on the device
-				entities.append(TodayLimitNumber(coordinator, child, dev["device_id"]))
+				entities.append(TodayLimitNumber(coordinator, child, dev["device_id"], dev_name))
 
 			# Per-day limit entities (Mon–Sun) – hidden by default, available for advanced use
 			daily_limits_map: dict[str, Any] = coordinator.data.get("daily_limits", {})
@@ -174,23 +175,29 @@ class DeviceBonusTimeNumber(CoordinatorEntity, NumberEntity):
 		coordinator: FamilyLinkDataUpdateCoordinator,
 		child: dict[str, Any],
 		device_id: str,
+		device_name: str = "",
 	) -> None:
 		"""Initialize the bonus time number entity."""
 		super().__init__(coordinator)
 		self._child_id: str = child["child_id"]
 		self._child_name: str = child.get("name", self._child_id)
 		self._device_id: str = device_id
-		suffix = device_id[-6:]
-		self._attr_name = f"{self._child_name} Device ({suffix}) Bonus Time"
+		self._device_name: str = device_name or f"…{device_id[-6:]}"
+		self._attr_name = f"{self._child_name} {self._device_name} Bonus Time"
 		self._attr_unique_id = f"{DOMAIN}_{self._child_id}_{device_id}_bonus_time"
 
 	@property
 	def device_info(self) -> DeviceInfo:
 		"""Group entity under the physical device HA entry."""
-		suffix = self._device_id[-6:]
+		device_name = self._device_name
+		if self.coordinator.data:
+			for dev in self.coordinator.data.get("devices", {}).get(self._child_id, []):
+				if dev["device_id"] == self._device_id and dev.get("device_name"):
+					device_name = dev["device_name"]
+					break
 		return DeviceInfo(
 			identifiers={(DOMAIN, self._device_id)},
-			name=f"{self._child_name} ({suffix})",
+			name=f"{self._child_name} {device_name}",
 			manufacturer="Google",
 			model="Android Device",
 			entry_type=DeviceEntryType.SERVICE,
@@ -235,23 +242,29 @@ class TodayLimitNumber(CoordinatorEntity, NumberEntity):
 		coordinator: FamilyLinkDataUpdateCoordinator,
 		child: dict[str, Any],
 		device_id: str,
+		device_name: str = "",
 	) -> None:
 		"""Initialize the today-limit number entity."""
 		super().__init__(coordinator)
 		self._child_id: str = child["child_id"]
 		self._child_name: str = child.get("name", self._child_id)
 		self._device_id: str = device_id
-		suffix = device_id[-6:]
-		self._attr_name = f"{self._child_name} ({suffix}) Today's Limit"
+		self._device_name: str = device_name or f"…{device_id[-6:]}"
+		self._attr_name = f"{self._child_name} {self._device_name} Today's Limit"
 		self._attr_unique_id = f"{DOMAIN}_{self._child_id}_{device_id}_today_limit"
 
 	@property
 	def device_info(self) -> DeviceInfo:
 		"""Group entity under the physical device – same as Screen Time sensor."""
-		suffix = self._device_id[-6:]
+		device_name = self._device_name
+		if self.coordinator.data:
+			for dev in self.coordinator.data.get("devices", {}).get(self._child_id, []):
+				if dev["device_id"] == self._device_id and dev.get("device_name"):
+					device_name = dev["device_name"]
+					break
 		return DeviceInfo(
 			identifiers={(DOMAIN, self._device_id)},
-			name=f"{self._child_name} ({suffix})",
+			name=f"{self._child_name} {device_name}",
 			manufacturer="Google",
 			model="Android Device",
 			entry_type=DeviceEntryType.SERVICE,
