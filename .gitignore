@@ -65,3 +65,4 @@ Thumbs.db
 *.har
 
 docs/timelimits.txt
+docs/*.har

@@ -96,62 +96,96 @@ def parse_restrictions(raw: dict[str, Any]) -> dict[str, Any]:
 	}
 
 
-def parse_applied_time_limits(raw: dict[str, Any]) -> list[dict[str, Any]]:
-	"""Parse the appliedTimeLimits JSON response into a flat list of device dicts.
+def parse_applied_time_limits(raw: Any) -> list[dict[str, Any]]:
+	"""Parse the appliedTimeLimits response into a flat list of device dicts.
 
-	Each entry in ``appliedTimeLimits`` corresponds to one physical device
-	supervised under the child account.
+	The API returns **JSPB array format** (``application/json+protobuf``), not a
+	plain JSON dict.  The outer structure is::
+
+		[[metadata], [[device_entry, ...]]]
+
+	where each ``device_entry`` is a positional array.  Confirmed field indices
+	(from HAR capture of familylink.google.com):
+
+	  * ``[6]``  – today's usage quota in minutes (int)
+	  * ``[19]`` – screen time used today in milliseconds (string)
+	  * ``[25]`` – opaque device ID string
+	  * ``[28]`` – is_locked flag (1 = locked, 0 = unlocked)
+	  * ``[30]`` – active overrides list (each element: ``[device_ref, action, ...]``)
 
 	Returns:
 		List of dicts with keys:
 		  - ``device_id``            – opaque Google device ID string
 		  - ``is_locked``            – True when device is currently locked
 		  - ``active_policy``        – "override" | "timeLimitOn" | "noActivePolicy"
-		  - ``override_action``      – action name from currentOverride, or None
+		  - ``override_action``      – integer action code of active override, or None
 		  - ``usage_minutes_today``  – screen time used today (minutes, rounded down)
 		  - ``today_limit_minutes``  – daily limit in minutes for today, or None
 	"""
+	import logging as _logging
+	_log = _logging.getLogger("custom_components.familylink")
+
+	# ── Detect format ─────────────────────────────────────────────────────────
+	# Response is a JSPB positional array: [[metadata], [[entry, ...]]]
+	if not isinstance(raw, list) or len(raw) < 2:
+		_log.warning(
+			"appliedTimeLimits: unexpected response type %s – expected JSPB list",
+			type(raw).__name__,
+		)
+		return []
+
+	entries_wrapper = raw[1]
+	if not isinstance(entries_wrapper, list):
+		return []
+
 	devices: list[dict[str, Any]] = []
-	for entry in raw.get("appliedTimeLimits", []):
-		device_id: str = entry.get("deviceId", "")
+
+	for entry in entries_wrapper:
+		if not isinstance(entry, list):
+			continue
+
+		_log.debug("appliedTimeLimits raw entry (len=%d): %s", len(entry), entry)
+
+		# ── device_id ─────────────────────────────────────────────────────────
+		device_id: str = entry[25] if len(entry) > 25 and isinstance(entry[25], str) else ""
 		if not device_id:
 			continue
 
-		is_locked: bool = bool(entry.get("isLocked", False))
-		active_policy: str = entry.get("activePolicy", "unknown")
+		# ── is_locked ─────────────────────────────────────────────────────────
+		is_locked: bool = bool(entry[28]) if len(entry) > 28 else False
 
-		current_override = entry.get("currentOverride")
-		override_action: str | None = (
-			current_override.get("action") if isinstance(current_override, dict) else None
-		)
+		# ── active_policy / override_action ───────────────────────────────────
+		override_action: int | None = None
+		overrides = entry[30] if len(entry) > 30 and isinstance(entry[30], list) else []
+		if overrides:
+			first = overrides[0]
+			if isinstance(first, list) and len(first) > 1:
+				try:
+					override_action = int(first[1])
+				except (ValueError, TypeError):
+					pass
 
-		# Screen time used today (API provides milliseconds as string)
-		usage_ms_raw = entry.get("currentUsageUsedMillis", "0") or "0"
-		try:
-			usage_minutes = int(usage_ms_raw) // 60_000
-		except (ValueError, TypeError):
-			usage_minutes = 0
+		if override_action is not None:
+			active_policy = "override"
+		elif is_locked:
+			active_policy = "timeLimitOn"
+		else:
+			active_policy = "noActivePolicy"
 
-		# Today's daily quota.
-		# Field name varies by API call path; try most-specific first.
-		# "nextUsageLimitEntry" is intentionally excluded: it holds *tomorrow's* plan
-		# and causes an off-by-one when today's entry is absent (e.g. Sunday with
-		# no scheduled limit).
+		# ── usage_minutes_today ────────────────────────────────────────────────
+		# Index 19: currentUsageUsedMillis as a string (e.g. "5700000")
+		usage_minutes = 0
+		if len(entry) > 19 and entry[19] is not None:
+			try:
+				usage_minutes = int(entry[19]) // 60_000
+			except (ValueError, TypeError):
+				pass
+
+		# ── today_limit_minutes ───────────────────────────────────────────────
+		# Index 6: usageQuotaMins as an integer (e.g. 95)
 		today_limit: int | None = None
-		for limit_key in (
-			"currentUsageLimitEntry",
-			"inactiveCurrentUsageLimitEntry",
-			"usageLimitEntry",
-		):
-			limit_entry = entry.get(limit_key)
-			if isinstance(limit_entry, dict):
-				quota = limit_entry.get("usageQuotaMins")
-				if quota is not None:
-					try:
-						today_limit = int(quota)
-					except (ValueError, TypeError):
-						pass
-					break
+		if len(entry) > 6 and isinstance(entry[6], int):
+			today_limit = entry[6]
 
 		devices.append(
 			{
@@ -163,4 +197,5 @@ def parse_applied_time_limits(raw: dict[str, Any]) -> list[dict[str, Any]]:
 				"today_limit_minutes": today_limit,
 			}
 		)
+
 	return devices
