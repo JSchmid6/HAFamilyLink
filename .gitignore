@@ -63,3 +63,5 @@ Thumbs.db
 *.log 
 # HAR files may contain auth tokens and PII
 *.har
+
+docs/timelimits.txt
