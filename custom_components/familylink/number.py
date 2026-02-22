@@ -127,6 +127,7 @@ class AppTimeLimitNumber(CoordinatorEntity, NumberEntity):
 	_attr_native_unit_of_measurement = UnitOfTime.MINUTES
 	_attr_icon = "mdi:timer-edit-outline"
 	_attr_entity_registry_enabled_default = False
+	_attr_has_entity_name = True
 
 	def __init__(
 		self,
@@ -145,7 +146,7 @@ class AppTimeLimitNumber(CoordinatorEntity, NumberEntity):
 		self._device_id: str = device_id
 		self._device_name: str = device_name or (f"…{device_id[-6:]}" if device_id else "")
 		slug = app_name.lower().replace(" ", "_").replace(".", "_")
-		self._attr_name = f"{self._child_name} {app_name} Daily Limit"
+		self._attr_name = f"{app_name} Daily Limit"
 		self._attr_unique_id = f"{DOMAIN}_{self._child_id}_{slug}_limit"
 
 	@property
@@ -217,6 +218,7 @@ class DeviceBonusTimeNumber(CoordinatorEntity, NumberEntity):
 	_attr_native_unit_of_measurement = UnitOfTime.MINUTES
 	_attr_icon = "mdi:timer-plus-outline"
 	_attr_entity_registry_enabled_default = False
+	_attr_has_entity_name = True
 
 	def __init__(
 		self,
@@ -231,7 +233,7 @@ class DeviceBonusTimeNumber(CoordinatorEntity, NumberEntity):
 		self._child_name: str = child.get("name", self._child_id)
 		self._device_id: str = device_id
 		self._device_name: str = device_name or f"…{device_id[-6:]}"
-		self._attr_name = f"{self._child_name} {self._device_name} Bonus Time"
+		self._attr_name = "Bonus Time"
 		self._attr_unique_id = f"{DOMAIN}_{self._child_id}_{device_id}_bonus_time"
 
 	@property
@@ -284,6 +286,7 @@ class TodayLimitNumber(CoordinatorEntity, NumberEntity):
 	_attr_native_step = 5.0
 	_attr_native_unit_of_measurement = UnitOfTime.MINUTES
 	_attr_icon = "mdi:timer-lock-outline"
+	_attr_has_entity_name = True
 
 	def __init__(
 		self,
@@ -298,7 +301,7 @@ class TodayLimitNumber(CoordinatorEntity, NumberEntity):
 		self._child_name: str = child.get("name", self._child_id)
 		self._device_id: str = device_id
 		self._device_name: str = device_name or f"…{device_id[-6:]}"
-		self._attr_name = f"{self._child_name} {self._device_name} Today's Limit"
+		self._attr_name = "Today's Limit"
 		self._attr_unique_id = f"{DOMAIN}_{self._child_id}_{device_id}_today_limit"
 
 	@property
@@ -397,6 +400,7 @@ class DeviceDailyLimitNumber(CoordinatorEntity, NumberEntity):
 	_attr_native_unit_of_measurement = UnitOfTime.MINUTES
 	_attr_icon = "mdi:timer-lock-outline"
 	_attr_entity_registry_enabled_default = False
+	_attr_has_entity_name = True
 
 	def __init__(
 		self,
@@ -414,7 +418,7 @@ class DeviceDailyLimitNumber(CoordinatorEntity, NumberEntity):
 		self._device_id: str = device_id
 		self._device_name: str = device_name or (f"…{device_id[-6:]}" if device_id else "")
 		day_name = _DAY_NAMES[day_num]
-		self._attr_name = f"{self._child_name} Daily Limit {day_name}"
+		self._attr_name = f"Daily Limit {day_name}"
 		self._attr_unique_id = f"{DOMAIN}_{self._child_id}_daily_limit_{day_num}"
 
 	@property

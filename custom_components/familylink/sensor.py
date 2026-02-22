@@ -69,6 +69,7 @@ class ChildScreenTimeSensor(CoordinatorEntity, SensorEntity):
 	_attr_native_unit_of_measurement = UnitOfTime.MINUTES
 	_attr_icon = "mdi:cellphone-clock"
 	_attr_suggested_display_precision = 0
+	_attr_has_entity_name = True
 
 	def __init__(
 		self,
@@ -79,7 +80,7 @@ class ChildScreenTimeSensor(CoordinatorEntity, SensorEntity):
 		super().__init__(coordinator)
 		self._child_id: str = child["child_id"]
 		self._child_name: str = child.get("name", self._child_id)
-		self._attr_name = f"{self._child_name} Screen Time Today"
+		self._attr_name = "Screen Time Today"
 		self._attr_unique_id = f"{DOMAIN}_{self._child_id}_screen_time"
 
 	@property
@@ -136,6 +137,7 @@ class DeviceScreenTimeSensor(CoordinatorEntity, SensorEntity):
 	_attr_native_unit_of_measurement = UnitOfTime.MINUTES
 	_attr_icon = "mdi:cellphone-clock"
 	_attr_suggested_display_precision = 0
+	_attr_has_entity_name = True
 
 	def __init__(
 		self,
@@ -150,7 +152,7 @@ class DeviceScreenTimeSensor(CoordinatorEntity, SensorEntity):
 		self._child_name: str = child.get("name", self._child_id)
 		self._device_id: str = device_id
 		self._device_name: str = device_name or f"…{device_id[-6:]}"
-		self._attr_name = f"{self._child_name} {self._device_name} Screen Time"
+		self._attr_name = "Screen Time"
 		self._attr_unique_id = f"{DOMAIN}_{self._child_id}_{device_id}_screen_time"
 
 	@property

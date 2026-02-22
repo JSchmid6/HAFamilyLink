@@ -50,6 +50,7 @@ class ChildSupervisionSwitch(CoordinatorEntity, SwitchEntity):
 	"""
 
 	_attr_icon = "mdi:account-child-circle"
+	_attr_has_entity_name = True
 
 	def __init__(
 		self,
@@ -60,7 +61,7 @@ class ChildSupervisionSwitch(CoordinatorEntity, SwitchEntity):
 		super().__init__(coordinator)
 		self._child_id: str = child["child_id"]
 		self._child_name: str = child.get("name", self._child_id)
-		self._attr_name = f"{self._child_name} Supervision"
+		self._attr_name = "Supervision"
 		self._attr_unique_id = f"{DOMAIN}_{self._child_id}_supervision"
 
 	@property
