@@ -147,6 +147,7 @@ def parse_applied_time_limits(raw: Any) -> list[dict[str, Any]]:
 		_log.debug("appliedTimeLimits raw entry (len=%d): %s", len(entry), entry)
 
 		# ── device_id ─────────────────────────────────────────────────────────
+		# Index 25 confirmed from HAR capture of familylink.google.com
 		device_id: str = entry[25] if len(entry) > 25 and isinstance(entry[25], str) else ""
 		if not device_id:
 			continue

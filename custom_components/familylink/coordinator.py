@@ -93,11 +93,15 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 						usage[cid] = parse_usage(result)
 						restrictions[cid] = parse_restrictions(result)
 
-				# 3. Fetch per-device time limits and daily limits in parallel
+				# 3. Fetch per-device time limits, device names and daily limits in parallel
 				gather_results = list(
 					await asyncio.gather(
 						*[
 							self.client.async_get_applied_time_limits(c["child_id"])
+							for c in children
+						],
+						*[
+							self.client.async_get_device_names(c["child_id"])
 							for c in children
 						],
 						*[
@@ -109,10 +113,13 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 				)
 				n = len(children)
 				device_results = gather_results[:n]
-				daily_results = gather_results[n:]
+				name_results = gather_results[n : n * 2]
+				daily_results = gather_results[n * 2 :]
 
 				daily_limits: dict[str, dict[int, dict]] = {}
-				for child, dev_result, daily_result in zip(children, device_results, daily_results):
+				for child, dev_result, name_result, daily_result in zip(
+					children, device_results, name_results, daily_results
+				):
 					cid = child["child_id"]
 					if isinstance(dev_result, BaseException):
 						_LOGGER.warning(
@@ -120,6 +127,11 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 						)
 						devices[cid] = []
 					else:
+						# Enrich each device entry with its human-readable name
+						name_map: dict[str, str] = name_result if isinstance(name_result, dict) else {}
+						for dev in dev_result:
+							did = dev.get("device_id", "")
+							dev["device_name"] = name_map.get(did) or f"…{did[-6:]}"
 						devices[cid] = dev_result
 					if isinstance(daily_result, BaseException):
 						_LOGGER.warning(

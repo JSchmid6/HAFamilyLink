@@ -273,6 +273,64 @@ class FamilyLinkClient:
 			raise DeviceControlError(f"Failed to bulk-update restrictions: {err}") from err
 
 	# ------------------------------------------------------------------
+	# Device registry  (/devices)
+	# ------------------------------------------------------------------
+
+	async def async_get_device_names(
+		self, child_id: str
+	) -> dict[str, str]:
+		"""Return a mapping of device_id → human-readable device name.
+
+		Calls ``GET /people/{child_id}/devices`` which returns a JSPB array.
+		Confirmed field indices (from HAR capture):
+
+		  * ``entry[0]``   – opaque device ID
+		  * ``entry[10]``  – device model name (e.g. ``SM-X200``)
+		  * ``entry[8][2]``– same name, in the nested device-info sub-array
+		"""
+		session = await self._get_session()
+		url = f"{KIDSMANAGEMENT_BASE_URL}/people/{child_id}/devices"
+		headers = {
+			"Content-Type": "application/json",
+			**self._auth_headers(),
+		}
+		try:
+			async with session.get(url, headers=headers) as resp:
+				resp.raise_for_status()
+				data = await resp.json(content_type=None)
+		except aiohttp.ClientResponseError as err:
+			_LOGGER.warning(
+				"Failed to fetch devices [child=%s]: HTTP %s – will use ID suffix as fallback",
+				child_id, err.status,
+			)
+			return {}
+		except Exception as err:
+			_LOGGER.warning("Failed to fetch devices [child=%s]: %s", child_id, err)
+			return {}
+
+		# JSPB: [[metadata], [[entry0], [entry1], ...]]
+		if not isinstance(data, list) or len(data) < 2 or not isinstance(data[1], list):
+			_LOGGER.debug("Devices response unexpected format for child %s: %s", child_id, type(data))
+			return {}
+
+		result: dict[str, str] = {}
+		for entry in data[1]:
+			if not isinstance(entry, list) or len(entry) < 11:
+				continue
+			device_id = entry[0] if isinstance(entry[0], str) else ""
+			if not device_id:
+				continue
+			# Index 10 is the plain device name string
+			name: str = ""
+			if isinstance(entry[10], str):
+				name = entry[10]
+			elif isinstance(entry[8], list) and len(entry[8]) > 2 and isinstance(entry[8][2], str):
+				name = entry[8][2]
+			result[device_id] = name or f"…{device_id[-6:]}"
+			_LOGGER.debug("Device name resolved: %s → %s", device_id, result[device_id])
+		return result
+
+	# ------------------------------------------------------------------
 	# Device time limits (appliedTimeLimits)
 	# ------------------------------------------------------------------
 
