@@ -18,7 +18,7 @@ from .const import (
 	DOMAIN,
 	LOGGER_NAME,
 )
-from .exceptions import FamilyLinkException, SessionExpiredError
+from .exceptions import FamilyLinkException, SessionExpiredError, TransientNetworkError
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
 
@@ -80,9 +80,14 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 				for child, result in zip(children, raw_results):
 					cid = child["child_id"]
 					if isinstance(result, BaseException):
-						_LOGGER.warning(
-							"Failed to fetch data for child %s: %s", cid, result
-						)
+							if isinstance(result, TransientNetworkError):
+								_LOGGER.debug(
+									"Transient error fetching data for child %s: %s", cid, result
+								)
+							else:
+								_LOGGER.warning(
+									"Failed to fetch data for child %s: %s", cid, result
+								)
 						usage[cid] = []
 						restrictions[cid] = {
 							"limited": [],
@@ -122,9 +127,14 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 				):
 					cid = child["child_id"]
 					if isinstance(dev_result, BaseException):
-						_LOGGER.warning(
-							"Failed to fetch device limits for child %s: %s", cid, dev_result
-						)
+						if isinstance(dev_result, TransientNetworkError):
+							_LOGGER.debug(
+								"Transient error fetching device limits for child %s: %s", cid, dev_result
+							)
+						else:
+							_LOGGER.warning(
+								"Failed to fetch device limits for child %s: %s", cid, dev_result
+							)
 						devices[cid] = []
 					else:
 						if not dev_result:
@@ -140,9 +150,14 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 							dev["device_name"] = name_map.get(did) or f"…{did[-6:]}"
 						devices[cid] = dev_result
 					if isinstance(daily_result, BaseException):
-						_LOGGER.warning(
-							"Failed to fetch daily limits for child %s: %s", cid, daily_result
-						)
+						if isinstance(daily_result, TransientNetworkError):
+							_LOGGER.debug(
+								"Transient error fetching daily limits for child %s: %s", cid, daily_result
+							)
+						else:
+							_LOGGER.warning(
+								"Failed to fetch daily limits for child %s: %s", cid, daily_result
+							)
 						daily_limits[cid] = {}
 					else:
 						daily_limits[cid] = daily_result

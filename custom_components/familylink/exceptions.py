@@ -26,6 +26,10 @@ class NetworkError(FamilyLinkException):
 	"""Exception raised when network operations fail."""
 
 
+class TransientNetworkError(NetworkError):
+	"""Exception raised for transient server errors (5xx, 429) that may resolve on the next poll."""
+
+
 class TimeoutError(FamilyLinkException):
 	"""Exception raised when operations timeout."""
 

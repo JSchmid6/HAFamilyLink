@@ -43,7 +43,13 @@ from ..exceptions import (
 	DeviceControlError,
 	NetworkError,
 	SessionExpiredError,
+	TransientNetworkError,
 )
+
+# HTTP status codes that indicate a transient server-side condition.
+# These are downgraded to WARNING level and raise TransientNetworkError so the
+# coordinator continues with stale/empty data rather than marking the entry as failed.
+_TRANSIENT_HTTP_STATUSES: frozenset[int] = frozenset({429, 500, 502, 503, 504})
 
 _LOGGER = logging.getLogger(LOGGER_NAME)
 
@@ -111,8 +117,9 @@ class FamilyLinkClient:
 			async with session.get(url, headers=headers) as resp:
 				resp.raise_for_status()
 				data = await resp.json(content_type=None)
-		except aiohttp.ClientResponseError as err:
-			_LOGGER.error("Failed to fetch family members: HTTP %s", err.status)
+		except aiohttp.ClientResponseError as err:			if err.status in _TRANSIENT_HTTP_STATUSES:
+				_LOGGER.warning("Failed to fetch family members: HTTP %s (transient)", err.status)
+				raise TransientNetworkError(f"HTTP {err.status} while fetching family members") from err			_LOGGER.error("Failed to fetch family members: HTTP %s", err.status)
 			raise NetworkError(f"HTTP {err.status} while fetching members") from err
 		except Exception as err:
 			_LOGGER.error("Failed to fetch family members: %s", err)
@@ -150,6 +157,9 @@ class FamilyLinkClient:
 				resp.raise_for_status()
 				data = await resp.json(content_type=None)
 		except aiohttp.ClientResponseError as err:
+			if err.status in _TRANSIENT_HTTP_STATUSES:
+				_LOGGER.warning("Failed to fetch app usage [child=%s]: HTTP %s (transient)", child_id, err.status)
+				raise TransientNetworkError(f"HTTP {err.status} while fetching app usage") from err
 			_LOGGER.error("Failed to fetch app usage [child=%s]: HTTP %s", child_id, err.status)
 			raise NetworkError(f"HTTP {err.status} while fetching app usage") from err
 		except Exception as err:
@@ -391,6 +401,13 @@ class FamilyLinkClient:
 				resp.raise_for_status()
 				data = await resp.json(content_type=None)
 		except aiohttp.ClientResponseError as err:
+			if err.status in _TRANSIENT_HTTP_STATUSES:
+				_LOGGER.warning(
+					"Failed to fetch applied time limits [child=%s]: HTTP %s (transient)", child_id, err.status
+				)
+				raise TransientNetworkError(
+					f"HTTP {err.status} while fetching applied time limits"
+				) from err
 			_LOGGER.error(
 				"Failed to fetch applied time limits [child=%s]: HTTP %s", child_id, err.status
 			)
