@@ -1,0 +1,144 @@
+################################################################################
+# script.tabletzeit_buchen
+#
+# Bucht Tabletzeit aus dem Zeitkonto eines Kindes oder gibt sie zurueck.
+#
+# Wird von der HATabletTime-Flutter-App aufgerufen. Die echten HA-Entity-IDs
+# werden von der App ermittelt und als Parameter uebergeben - das Script
+# baut keine Entity-IDs selbst zusammen.
+#
+# Dieses Script in HA einspielen:
+#   Einstellungen -> Automationen & Szenen -> Scripts -> + -> YAML-Modus
+#   oder direkt in scripts.yaml / packages ablegen.
+################################################################################
+
+tabletzeit_buchen:
+  alias: "Tabletzeit buchen"
+  description: >-
+    Bucht Minuten aus dem Zeitkonto eines Kindes auf sein Tageslimit (positiv)
+    oder gibt Minuten zurueck ins Konto (negativ). Prueft Guthaben und Tageslimit-Grenzen.
+    Wird von der HATabletTime-App aufgerufen.
+  mode: single
+  fields:
+    kind:
+      description: "Kind-Slug (z.B. emilio) - steuert input_number.zeitkonto_{kind}"
+      selector:
+        text: {}
+    minuten:
+      description: "Minuten zu buchen (positiv = Zeit kaufen, negativ = Zeit zurueckgeben)"
+      selector:
+        number:
+          min: -120
+          max: 120
+          step: 15
+          unit_of_measurement: min
+    limit_entity_id:
+      description: "Echte HA Entity-ID des number.*_today_s_limit (von der App uebergeben)"
+      selector:
+        entity:
+          domain: number
+    sensor_entity_id:
+      description: "Echte HA Entity-ID des Screen-Time-Sensors (von der App uebergeben)"
+      selector:
+        entity:
+          domain: sensor
+    # child_id und device_id werden von der App mitgeschickt, aber nicht fuer
+    # Entity-ID-Konstruktion verwendet (nur fuer Logging/Erweiterbarkeit).
+    child_id:
+      description: "Google-Child-ID (nur fuer Logging)"
+      selector:
+        text: {}
+    device_id:
+      description: "Google-Device-ID (nur fuer Logging)"
+      selector:
+        text: {}
+
+  sequence:
+
+    # -------------------------------------------------------------------------
+    # Variablen einmalig aufloesen.
+    # Die echten Entity-IDs kommen direkt von der App - kein Konstruieren!
+    # -------------------------------------------------------------------------
+    - variables:
+        konto_entity:       "input_number.zeitkonto_{{ kind }}"
+        minuten_int:        "{{ minuten | int }}"
+        aktuelles_limit:    "{{ states(limit_entity_id) | float(0) | round(0) | int }}"
+        aktuelles_guthaben: "{{ states(konto_entity) | float(0) | round(0) | int }}"
+        # native_value des DeviceScreenTimeSensor = heute verbrauchte Minuten
+        heute_verbraucht:   "{{ states(sensor_entity_id) | float(0) | round(0) | int }}"
+        max_guthaben:       "{{ state_attr(konto_entity, 'max') | int(720) }}"
+
+    - choose:
+
+        # =====================================================================
+        # VORWAERTSBUCHUNG: Minuten kaufen (minuten > 0)
+        # =====================================================================
+        - conditions:
+            - condition: template
+              value_template: "{{ minuten_int > 0 }}"
+          sequence:
+            # Sicherheitspruefung 1: Guthaben ausreichend?
+            - condition: template
+              value_template: "{{ aktuelles_guthaben >= minuten_int }}"
+            # Sicherheitspruefung 2: Tageslimit <= 720 min nach Buchung?
+            - condition: template
+              value_template: "{{ (aktuelles_limit + minuten_int) <= 720 }}"
+
+            # Tageslimit erhoehen
+            - action: number.set_value
+              target:
+                entity_id: "{{ limit_entity_id }}"
+              data:
+                value: "{{ aktuelles_limit + minuten_int }}"
+
+            # Guthaben abbuchen
+            - action: input_number.set_value
+              target:
+                entity_id: "{{ konto_entity }}"
+              data:
+                value: "{{ aktuelles_guthaben - minuten_int }}"
+
+            # Logbuch-Eintrag
+            - action: logbook.log
+              data:
+                name: "Zeitkonto {{ kind }}"
+                message: >-
+                  {{ minuten_int }} min gebucht -> neues Limit {{ aktuelles_limit + minuten_int }} min.
+                  Guthaben noch {{ aktuelles_guthaben - minuten_int }} min.
+
+        # =====================================================================
+        # RUECKWAERTSBUCHUNG: Minuten zurueckgeben (minuten < 0)
+        # =====================================================================
+        - conditions:
+            - condition: template
+              value_template: "{{ minuten_int < 0 }}"
+          sequence:
+            # Sicherheitspruefung 1: Guthaben nach Rueckgabe <= Maximum?
+            - condition: template
+              value_template: "{{ (aktuelles_guthaben - minuten_int) <= max_guthaben }}"
+            # Sicherheitspruefung 2: Neues Limit >= bereits verbrauchte Zeit?
+            #   (Verhindert dass Limit unter aktuellen Verbrauch faellt)
+            - condition: template
+              value_template: "{{ (aktuelles_limit + minuten_int) >= heute_verbraucht }}"
+
+            # Tageslimit verringern
+            - action: number.set_value
+              target:
+                entity_id: "{{ limit_entity_id }}"
+              data:
+                value: "{{ aktuelles_limit + minuten_int }}"
+
+            # Guthaben gutschreiben (minuten_int ist negativ -> Subtraktion = Addition)
+            - action: input_number.set_value
+              target:
+                entity_id: "{{ konto_entity }}"
+              data:
+                value: "{{ aktuelles_guthaben - minuten_int }}"
+
+            # Logbuch-Eintrag
+            - action: logbook.log
+              data:
+                name: "Zeitkonto {{ kind }}"
+                message: >-
+                  {{ minuten_int | abs }} min zurueckgegeben -> neues Limit {{ aktuelles_limit + minuten_int }} min.
+                  Guthaben jetzt {{ aktuelles_guthaben - minuten_int }} min.
