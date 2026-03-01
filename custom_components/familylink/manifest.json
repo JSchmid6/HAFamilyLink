@@ -1,15 +1,17 @@
 {
-	"domain": "familylink",
-	"name": "Google Family Link",
-	"version": "0.8.16",
-	"documentation": "https://github.com/noiwid/HAFamilyLink",
-	"issue_tracker": "https://github.com/noiwid/HAFamilyLink/issues",
-	"codeowners": ["@noiwid"],
-	"config_flow": true,
-	"dependencies": [],
-	"requirements": [
-		"aiohttp>=3.8.0"
-	],
-	"iot_class": "cloud_polling",
-	"integration_type": "hub"
-} 
+  "domain": "familylink",
+  "name": "Google Family Link",
+  "version": "0.8.17",
+  "documentation": "https://github.com/noiwid/HAFamilyLink",
+  "issue_tracker": "https://github.com/noiwid/HAFamilyLink/issues",
+  "codeowners": [
+    "@noiwid"
+  ],
+  "config_flow": true,
+  "dependencies": [],
+  "requirements": [
+    "aiohttp>=3.8.0"
+  ],
+  "iot_class": "cloud_polling",
+  "integration_type": "hub"
+}
