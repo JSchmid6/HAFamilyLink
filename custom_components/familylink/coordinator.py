@@ -80,14 +80,14 @@ class FamilyLinkDataUpdateCoordinator(DataUpdateCoordinator):
 				for child, result in zip(children, raw_results):
 					cid = child["child_id"]
 					if isinstance(result, BaseException):
-							if isinstance(result, TransientNetworkError):
-								_LOGGER.debug(
-									"Transient error fetching data for child %s: %s", cid, result
-								)
-							else:
-								_LOGGER.warning(
-									"Failed to fetch data for child %s: %s", cid, result
-								)
+						if isinstance(result, TransientNetworkError):
+							_LOGGER.debug(
+								"Transient error fetching data for child %s: %s", cid, result
+							)
+						else:
+							_LOGGER.warning(
+								"Failed to fetch data for child %s: %s", cid, result
+							)
 						usage[cid] = []
 						restrictions[cid] = {
 							"limited": [],
