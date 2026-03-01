@@ -9,6 +9,7 @@ Reference implementation: https://github.com/tducret/familylink
 """
 from __future__ import annotations
 
+import email.utils
 import hashlib
 import http.cookies
 import json
@@ -80,8 +81,9 @@ class FamilyLinkClient:
 		self._session: aiohttp.ClientSession | None = None
 		# Cache: child_id → {app_title_lower: package_name}
 		self._app_cache: dict[str, dict[str, str]] = {}
-		# Set-Cookie values captured from the last API cycle (name → value)
-		self._pending_cookie_updates: dict[str, str] = {}
+		# Set-Cookie values captured from the last API cycle.
+		# Each entry: {"value": str, "expires": float | None}
+		self._pending_cookie_updates: dict[str, dict[str, Any]] = {}
 
 	# ------------------------------------------------------------------
 	# Auth
@@ -117,9 +119,11 @@ class FamilyLinkClient:
 			async with session.get(url, headers=headers) as resp:
 				resp.raise_for_status()
 				data = await resp.json(content_type=None)
-		except aiohttp.ClientResponseError as err:			if err.status in _TRANSIENT_HTTP_STATUSES:
+		except aiohttp.ClientResponseError as err:
+			if err.status in _TRANSIENT_HTTP_STATUSES:
 				_LOGGER.warning("Failed to fetch family members: HTTP %s (transient)", err.status)
-				raise TransientNetworkError(f"HTTP {err.status} while fetching family members") from err			_LOGGER.error("Failed to fetch family members: HTTP %s", err.status)
+				raise TransientNetworkError(f"HTTP {err.status} while fetching family members") from err
+			_LOGGER.error("Failed to fetch family members: HTTP %s", err.status)
 			raise NetworkError(f"HTTP {err.status} while fetching members") from err
 		except Exception as err:
 			_LOGGER.error("Failed to fetch family members: %s", err)
@@ -720,10 +724,15 @@ class FamilyLinkClient:
 		return self._session
 
 	def _capture_set_cookies(self, headers: Any) -> None:
-		"""Extract name/value pairs from ``Set-Cookie`` response headers.
+		"""Extract name/value pairs (and expiry timestamps) from ``Set-Cookie`` response headers.
 
 		Parsed values are stored in ``_pending_cookie_updates`` and later merged
 		into the persisted cookie list by :meth:`get_updated_cookies`.
+
+		Both the cookie value *and* the new expiry date (from ``max-age`` or
+		``expires`` attributes) are captured so that ``is_authenticated()`` does
+		not reject a renewed session because the *original* login timestamp has
+		passed.
 		"""
 		for cookie_str in headers.getall("Set-Cookie", []):
 			sc: http.cookies.SimpleCookie = http.cookies.SimpleCookie()
@@ -732,7 +741,23 @@ class FamilyLinkClient:
 			except http.cookies.CookieError:
 				continue
 			for name, morsel in sc.items():
-				self._pending_cookie_updates[name] = morsel.value
+				entry: dict[str, Any] = {"value": morsel.value}
+				# Prefer max-age (seconds-from-now) over expires (absolute date).
+				max_age_raw: str = morsel["max-age"]
+				if max_age_raw:
+					try:
+						entry["expires"] = time.time() + float(max_age_raw)
+					except (ValueError, TypeError):
+						pass
+				if "expires" not in entry:
+					expires_raw: str = morsel["expires"]
+					if expires_raw:
+						try:
+							parsed_t = email.utils.parsedate_to_datetime(expires_raw)
+							entry["expires"] = parsed_t.timestamp()
+						except Exception:
+							pass
+				self._pending_cookie_updates[name] = entry
 				_LOGGER.debug("Cookie auto-renewed via Set-Cookie: %s", name)
 
 	def get_updated_cookies(self) -> list[dict[str, Any]]:
@@ -751,10 +776,21 @@ class FamilyLinkClient:
 			return original
 
 		updates = dict(self._pending_cookie_updates)
-		merged: list[dict[str, Any]] = [
-			{**c, "value": updates[c["name"]]} if c.get("name") in updates else c
-			for c in original
-		]
+		merged: list[dict[str, Any]] = []
+		for c in original:
+			name = c.get("name", "")
+			if name in updates:
+				update = updates[name]
+				updated_c = {**c, "value": update["value"]}
+				# Also refresh the stored expiry so is_authenticated() does not
+				# reject the renewed cookie because the original login timestamp
+				# has passed.
+				if "expires" in update:
+					updated_c["expires"] = update["expires"]
+					updated_c["expirationDate"] = update["expires"]
+				merged.append(updated_c)
+			else:
+				merged.append(c)
 
 		# Reflect the renewals in-memory so the next _auth_headers() call uses
 		# the fresh values without requiring a config entry reload.
